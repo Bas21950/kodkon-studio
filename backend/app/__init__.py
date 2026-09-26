@@ -1,0 +1,1 @@
+"""KodKon Studio local application."""

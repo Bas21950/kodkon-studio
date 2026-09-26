@@ -1,0 +1,16 @@
+.venv/
+node_modules/
+frontend/dist/
+backend/.env
+.env
+.env.*
+!.env.example
+*.pyc
+__pycache__/
+*.sqlite3
+*.db
+data/
+coverage/
+.pytest_cache/
+release/
+*.log
