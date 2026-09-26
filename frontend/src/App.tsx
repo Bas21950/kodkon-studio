@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowUpRight,
   AudioLines,
-  CalendarClock,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -401,6 +400,8 @@ function EmptyProjects({ hasSearch, clearSearch, createProject }: { hasSearch: b
 function ProjectCard({ project, index, open, onDelete, deleting = false }: { project: Project; index: number; open: () => void; onDelete?: () => void; deleting?: boolean }) {
   const asset = projectCover(project);
   const status = asset ? assetLabel(asset) : { text: 'ยังไม่มีวิดีโอ', tone: 'muted' };
+  const sourceImageCount = project.assets.filter((item) => item.kind === 'product_image').length;
+  const postImageCount = project.assets.filter((item) => item.kind === 'post_image').length;
   const cardTones = ['lavender', 'peach', 'mint', 'sky'];
   return (
     <article className="project-card" onClick={open} onKeyDown={(event) => { if (event.key === 'Enter') open(); }} tabIndex={0} role="button" aria-label={`เปิดโปรเจกต์ ${project.title}`}>
@@ -420,7 +421,7 @@ function ProjectCard({ project, index, open, onDelete, deleting = false }: { pro
           <p>{project.product_name || (project.product_details || project.product_source_details || project.review_evidence || project.product_review_summary ? 'มีข้อมูลสินค้าแล้ว' : 'ยังไม่ได้ใส่ข้อมูลสินค้า')}</p>
         </div>
         <div className="project-card-meta">
-          <span>{asset?.kind === 'source_video' ? <FileVideo2 size={14} /> : <ImageIcon size={14} />}{asset?.kind === 'source_video' ? formatDuration(asset.duration_ms) : `${project.assets.filter((item) => item.kind === 'product_image').length} ภาพต้นฉบับ`}</span>
+          <span>{asset?.kind === 'source_video' ? <FileVideo2 size={14} /> : <ImageIcon size={14} />}{asset?.kind === 'source_video' ? formatDuration(asset.duration_ms) : sourceImageCount ? `${sourceImageCount} ภาพต้นฉบับ` : `${postImageCount} ภาพโพสต์`}</span>
           <span>{formatDate(project.updated_at)}</span>
         </div>
       </div>
@@ -429,14 +430,16 @@ function ProjectCard({ project, index, open, onDelete, deleting = false }: { pro
 }
 
 function ImageProjectDetail({ project, openPosts, goBack }: { project: Project; openPosts: () => void; goBack: () => void }) {
-  const output = project.assets.find((asset) => asset.kind === 'post_image');
+  const postImages = project.assets.filter((asset) => asset.kind === 'post_image');
   const originals = project.assets.filter((asset) => asset.kind === 'product_image');
+  const hasOriginalImages = originals.length > 0;
+  const postImagesSize = postImages.reduce((total, asset) => total + asset.byte_size, 0);
   return (
     <section className="page-content image-project-detail">
       <div className="project-back-row"><button className="text-button" onClick={goBack}><ArrowLeft size={15} />กลับไปโปรเจกต์ทั้งหมด</button></div>
-      <PageTitle eyebrow="คลังภาพสินค้า" title={project.title} subtitle="ภาพจัดองค์ประกอบและภาพต้นฉบับที่ใช้ทำโพสต์" action={<button className="button button-primary" onClick={openPosts}><Clapperboard size={15} />ดูรายการโพสต์</button>} />
-      {output && <div className="image-project-output content-panel"><div><span className="eyebrow">ภาพโพสต์</span><h2>ภาพจัดองค์ประกอบ</h2><p>{formatBytes(output.byte_size)} · บันทึกในเครื่องนี้</p></div><img src={assetFileUrl(output.id)} alt="ภาพโพสต์ที่จัดองค์ประกอบแล้ว" /></div>}
-      <div className="image-originals-panel content-panel"><div className="section-heading-row"><div><h2>ภาพต้นฉบับ <span className="count-pill">{originals.length}</span></h2><p>รูปสินค้าที่นำมาใช้สร้างภาพโพสต์</p></div></div><div className="image-original-grid">{originals.map((asset) => <img key={asset.id} src={assetFileUrl(asset.id)} alt={asset.original_name} title={asset.original_name} />)}</div></div>
+      <PageTitle eyebrow="คลังภาพสินค้า" title={project.title} subtitle={hasOriginalImages ? 'ภาพจัดองค์ประกอบและภาพต้นฉบับที่ใช้ทำโพสต์' : 'รูปที่แนบไว้สำหรับโพสต์นี้'} action={<button className="button button-primary" onClick={openPosts}><Clapperboard size={15} />ดูรายการโพสต์</button>} />
+      {postImages.length > 0 && <div className="image-project-output content-panel"><div className="image-project-output-heading"><span className="eyebrow">ภาพโพสต์</span><h2>{hasOriginalImages ? 'ภาพจัดองค์ประกอบ' : 'ภาพที่แนบไว้'}</h2><p>{postImages.length} รูป · {formatBytes(postImagesSize)} · บันทึกในเครื่องนี้</p></div><div className="image-project-gallery">{postImages.map((asset, index) => <img key={asset.id} src={assetFileUrl(asset.id)} alt={`ภาพโพสต์ ${index + 1}`} title={asset.original_name} />)}</div></div>}
+      {hasOriginalImages && <div className="image-originals-panel content-panel"><div className="section-heading-row"><div><h2>ภาพต้นฉบับ <span className="count-pill">{originals.length}</span></h2><p>รูปสินค้าที่นำมาใช้สร้างภาพโพสต์</p></div></div><div className="image-original-grid">{originals.map((asset) => <img key={asset.id} src={assetFileUrl(asset.id)} alt={asset.original_name} title={asset.original_name} />)}</div></div>}
     </section>
   );
 }
@@ -1101,6 +1104,7 @@ const publicationFilters = [
   { value: 'processing', label: 'กำลังประมวลผล' },
   { value: 'needs_attention', label: 'ต้องดำเนินการ' },
   { value: 'published', label: 'เผยแพร่แล้ว' },
+  { value: 'failed', label: 'ไม่สำเร็จ' },
   { value: 'cancelled', label: 'ยกเลิก' },
 ];
 
@@ -1131,6 +1135,7 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
   const [posts, setPosts] = useState<Publication[]>([]);
   const [filter, setFilter] = useState('');
   const [mediaFilter, setMediaFilter] = useState<'all' | 'video' | 'image'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [comment, setComment] = useState('');
@@ -1157,7 +1162,10 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
   const visiblePosts = posts.filter((post) => {
     const matchesStatus = !filter || post.status === filter;
     const matchesMedia = mediaFilter === 'all' || post.media_type === mediaFilter;
-    return matchesStatus && matchesMedia;
+    const query = searchQuery.trim().toLocaleLowerCase();
+    const matchesSearch = !query || [post.project_title, post.page_name, post.caption, post.affiliate_url]
+      .some((value) => value?.toLocaleLowerCase().includes(query));
+    return matchesStatus && matchesMedia && matchesSearch;
   });
   const selected = visiblePosts.find((post) => post.id === selectedId) ?? null;
   useEffect(() => {
@@ -1214,33 +1222,42 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
 
   return (
     <section className="page-content posts-page">
-      <PageTitle eyebrow="เผยแพร่คอนเทนต์" title="คิวโพสต์" subtitle="แยกจัดการโพสต์รูปภาพและวิดีโอ พร้อมติดตามสถานะ Facebook ได้จากที่เดียว" action={<button className="button button-primary" onClick={onCreateImagePost}><Sparkles size={15} />สร้างคอนเทนต์</button>} />
-      <div className="media-type-switch" role="tablist" aria-label="เลือกประเภทโพสต์">
-        <button className={mediaFilter === 'all' ? 'active' : ''} onClick={() => { setMediaFilter('all'); setSelectedId(null); }} role="tab" aria-selected={mediaFilter === 'all'}><Clapperboard size={15} />ทั้งหมด<span>{posts.length}</span></button>
-        <button className={mediaFilter === 'video' ? 'active video' : 'video'} onClick={() => { setMediaFilter('video'); setSelectedId(null); }} role="tab" aria-selected={mediaFilter === 'video'}><FileVideo2 size={15} />วิดีโอ<span>{posts.filter((post) => post.media_type === 'video').length}</span></button>
-        <button className={mediaFilter === 'image' ? 'active image' : 'image'} onClick={() => { setMediaFilter('image'); setSelectedId(null); }} role="tab" aria-selected={mediaFilter === 'image'}><ImageIcon size={15} />รูปภาพ<span>{posts.filter((post) => post.media_type === 'image').length}</span></button>
-      </div>
-      <div className="post-filters" role="tablist" aria-label="กรองรายการโพสต์">
-        {publicationFilters.map((item) => <button key={item.value} className={`post-filter ${filter === item.value ? 'active' : ''}`} onClick={() => { setFilter(item.value); setSelectedId(null); }} role="tab" aria-selected={filter === item.value}>{item.label}<span>{item.value ? posts.filter((post) => post.status === item.value).length : posts.length}</span></button>)}
+      <PageTitle eyebrow="คอนเทนต์" title="โพสต์" subtitle="จัดการโพสต์และติดตามสถานะ" action={<button className="button button-primary" onClick={onCreateImagePost}><Plus size={15} />สร้างโพสต์</button>} />
+      <div className="posts-toolbar">
+        <div className="media-type-switch" role="tablist" aria-label="เลือกประเภทโพสต์">
+          <button className={mediaFilter === 'all' ? 'active' : ''} onClick={() => { setMediaFilter('all'); setSelectedId(null); }} role="tab" aria-selected={mediaFilter === 'all'}>ทั้งหมด<span>{posts.length}</span></button>
+          <button className={mediaFilter === 'video' ? 'active video' : 'video'} onClick={() => { setMediaFilter('video'); setSelectedId(null); }} role="tab" aria-selected={mediaFilter === 'video'}><FileVideo2 size={15} />วิดีโอ<span>{posts.filter((post) => post.media_type === 'video').length}</span></button>
+          <button className={mediaFilter === 'image' ? 'active image' : 'image'} onClick={() => { setMediaFilter('image'); setSelectedId(null); }} role="tab" aria-selected={mediaFilter === 'image'}><ImageIcon size={15} />รูปภาพ<span>{posts.filter((post) => post.media_type === 'image').length}</span></button>
+        </div>
+        <div className="posts-tools">
+          <label className="post-status-filter"><span className="sr-only">กรองตามสถานะ</span><select value={filter} onChange={(event) => { setFilter(event.target.value); setSelectedId(null); }}>{publicationFilters.map((item) => <option key={item.value} value={item.value}>{item.value ? `${item.label} · ${posts.filter((post) => post.status === item.value).length}` : `ทุกสถานะ · ${posts.length}`}</option>)}</select></label>
+          <label className="posts-search"><Search size={17} /><span className="sr-only">ค้นหาโพสต์</span><input type="search" value={searchQuery} onChange={(event) => { setSearchQuery(event.target.value); setSelectedId(null); }} placeholder="ค้นหาโพสต์หรือแคปชัน" /></label>
+        </div>
       </div>
       {error && <div className="form-error">{error}</div>}{notice && <div className="form-success"><CheckCircle2 size={15} />{notice}</div>}
-      {loading ? <div className="loading-panel"><LoaderCircle className="spin" size={19} />กำลังโหลดรายการโพสต์</div> : !visiblePosts.length ? (
-        <div className="posts-empty content-panel"><div className="roadmap-icon"><Clapperboard size={24} /></div><h2>{filter ? 'ไม่มีรายการในสถานะนี้' : 'ยังไม่มีดราฟต์โพสต์'}</h2><p>เริ่มจากวิดีโอหรือภาพสินค้า แล้วงานที่เตรียมไว้จะมาแสดงในคิวนี้</p><button className="button button-secondary" onClick={onCreateImagePost}><Sparkles size={15} />เริ่มเวิร์กโฟลว์</button></div>
+      {loading ? <div className="loading-panel"><LoaderCircle className="spin" size={19} />กำลังโหลดโพสต์</div> : !visiblePosts.length ? (
+        <div className="posts-empty content-panel"><div className="roadmap-icon"><Clapperboard size={24} /></div><h2>{searchQuery.trim() ? 'ไม่พบโพสต์ที่ค้นหา' : filter ? 'ไม่มีโพสต์ในสถานะนี้' : 'ยังไม่มีโพสต์'}</h2><p>{searchQuery.trim() ? 'ลองใช้คำค้นอื่น หรือเคลียร์ตัวกรอง' : 'สร้างโพสต์รูปภาพหรือวิดีโอ แล้วรายการจะมาแสดงที่นี่'}</p>{searchQuery.trim() || filter ? <button className="button button-secondary" onClick={() => { setSearchQuery(''); setFilter(''); }}>ล้างตัวกรอง</button> : <button className="button button-primary" onClick={onCreateImagePost}><Plus size={15} />สร้างโพสต์</button>}</div>
       ) : (
-        <div className="publication-list">{visiblePosts.map((post) => {
+        <div className="publication-list">
+          <div className="publication-list-header" aria-hidden="true"><span>โพสต์</span><span>สถานะ</span><span>คอมเมนต์</span><span>เวลา</span><span>จัดการ</span></div>
+          {visiblePosts.map((post) => {
           const status = publicationStatus(post.status);
           const editable = ['draft', 'scheduled', 'needs_attention'].includes(post.status) && !post.remote_stage && !post.remote_video_id;
-          return <article className={`publication-card content-panel ${selectedId === post.id ? 'expanded' : ''}`} key={post.id}>
+          const commentStatus = post.comment_status === 'not_set' ? 'ไม่มี' : post.comment_status === 'waiting_for_publish' ? 'รอโพสต์' : post.comment_status === 'queued' ? 'กำลังส่ง' : post.comment_status === 'published' ? 'ลงแล้ว' : post.comment_status === 'failed' ? 'ไม่สำเร็จ' : 'ต้องดำเนินการ';
+          const postDate = post.published_at ?? post.scheduled_at ?? post.created_at;
+          return <article className={`publication-card ${selectedId === post.id ? 'expanded' : ''}`} key={post.id}>
             <div className="publication-main">
               <div className={`publication-video ${post.media_type === 'image' ? 'publication-image' : ''}`}>{post.render_asset ? post.media_type === 'image' ? <img src={assetFileUrl(post.render_asset.id)} alt="ภาพปกโพสต์" /> : <video src={assetFileUrl(post.render_asset.id)} controls preload="metadata" /> : post.media_type === 'image' ? <ImageIcon size={25} /> : <FileVideo2 size={25} />}{post.media_type === 'image' && post.media_assets.length > 1 && <span className="publication-image-count">{post.media_assets.length} รูป</span>}</div>
               <div className="publication-summary">
-                <div className="publication-title-row"><div><span className="panel-kicker">{post.media_type === 'image' ? 'โพสต์ภาพ' : 'โพสต์วิดีโอ'} · {post.project_title}</span><h2>{post.page_name ?? 'Facebook Page · ยังไม่เชื่อม'}</h2></div><span className={`status-chip ${status.tone}`}><span className="status-dot" />{status.label}</span></div>
+                <div className="publication-title-row"><div><span className="panel-kicker">{post.media_type === 'image' ? 'รูปภาพ' : 'วิดีโอ'} · {post.project_title}</span><h2>{post.page_name ?? 'ยังไม่เชื่อม Facebook Page'}</h2></div></div>
                 <p className="publication-caption-preview">{post.caption}</p>
-                <div className="publication-meta"><span><CalendarClock size={13} />{post.published_at ? `เผยแพร่ ${formatDateTime(post.published_at)}` : post.scheduled_at ? formatDateTime(post.scheduled_at) : 'ยังไม่ตั้งเวลา'}</span><span><MessageCircle size={13} />คอมเมนต์: {post.comment_status === 'not_set' ? 'ไม่มี' : post.comment_status === 'waiting_for_publish' ? 'รอโพสต์' : post.comment_status === 'queued' ? 'กำลังส่ง' : post.comment_status === 'published' ? 'ลงแล้ว' : post.comment_status === 'failed' ? 'ไม่สำเร็จ' : 'ต้องดำเนินการ'}</span><span>เพิ่ม {formatDateTime(post.created_at)}</span></div>
                 {post.last_error && <div className="publication-warning">{post.last_error}</div>}
                 {post.external_post_id && <a className="publication-link" href={post.media_type === 'image' ? `https://www.facebook.com/${encodeURIComponent(post.external_post_id)}` : `https://www.facebook.com/reel/${encodeURIComponent(post.external_post_id)}`} target="_blank" rel="noreferrer"><ExternalLink size={13} />เปิด{post.media_type === 'image' ? 'โพสต์ภาพ' : 'Reel'}บน Facebook</a>}
                 {post.affiliate_url && <a className="publication-link" href={post.affiliate_url} target="_blank" rel="noreferrer"><Link2 size={13} />{post.affiliate_url}</a>}
               </div>
+              <div className="publication-row-status"><span className={`status-chip ${status.tone}`}><span className="status-dot" />{status.label}</span></div>
+              <div className={`publication-row-comment comment-${post.comment_status}`}><MessageCircle size={15} /><span>{commentStatus}</span></div>
+              <div className="publication-row-date"><span>{post.published_at ? 'เผยแพร่' : post.scheduled_at ? 'กำหนดไว้' : 'สร้างเมื่อ'}</span><time dateTime={postDate}>{formatDateTime(postDate)}</time></div>
               <div className="publication-card-actions">
                 {editable && <button className="button button-primary small publication-send-button" onClick={() => confirmAndSendNow(post)} disabled={busy || !facebookReady} title={facebookReady ? 'เผยแพร่รายการที่บันทึกไว้ทันที' : 'เชื่อมต่อ Facebook Page ก่อน'}><Send size={13} />{postingId === post.id ? 'กำลังส่ง…' : 'โพสต์เลย'}</button>}
                 <button className="button button-secondary small publication-edit-button" onClick={() => setSelectedId(selectedId === post.id ? null : post.id)}>{selectedId === post.id ? 'ปิดรายละเอียด' : editable ? 'แก้ไข / ตั้งเวลา' : 'ดูรายละเอียด'}</button>
@@ -1259,7 +1276,8 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
               <div className="publication-history"><strong>ประวัติรายการ</strong>{post.events.map((event) => <div key={event.id}><span>{formatDateTime(event.created_at)}</span><p>{event.message}</p></div>)}</div>
             </div>}
           </article>;
-        })}</div>
+          })}
+        </div>
       )}
     </section>
   );
