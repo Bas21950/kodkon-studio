@@ -44,7 +44,6 @@ type Page = 'overview' | 'create' | 'projects' | 'image-posts' | 'posts' | 'sett
 const navItems: { id: Page; label: string; icon: LucideIcon; soon?: boolean }[] = [
   { id: 'overview', label: 'ศูนย์ควบคุม', icon: LayoutDashboard },
   { id: 'create', label: 'สร้างคอนเทนต์', icon: Sparkles },
-  { id: 'projects', label: 'คลังงาน', icon: FolderKanban },
   { id: 'posts', label: 'คิวโพสต์', icon: Clapperboard },
 ];
 
@@ -149,7 +148,7 @@ function App() {
       });
       setProjects((items) => [created, ...items]);
       setSelectedId(created.id);
-      setPage('projects');
+      setPage('overview');
       setSearch('');
       void loadProjects('');
     } catch (reason) {
@@ -255,14 +254,14 @@ function App() {
           <ImageProjectDetail
             project={selectedProject}
             openPosts={() => { setSelectedId(null); setPage('posts'); }}
-            goBack={() => { setSelectedId(null); setPage('projects'); }}
+            goBack={() => { setSelectedId(null); setPage('overview'); }}
           />
         ) : (
           <ProjectDetail
             project={selectedProject}
             refresh={() => loadProjects()}
             openPosts={() => { setSelectedId(null); setPage('posts'); }}
-            goBack={() => { setSelectedId(null); setPage('projects'); }}
+            goBack={() => { setSelectedId(null); setPage('overview'); }}
           />
         ) : page === 'projects' ? (
           <ProjectsPage
@@ -279,12 +278,10 @@ function App() {
           />
         ) : page === 'overview' ? (
           <OverviewPage
-            projectCount={projects.length}
             videoCount={videoCount}
             pendingCount={pendingCount}
-            projects={projects.slice(0, 4)}
-            openProject={(project) => { setPage('projects'); setSelectedId(project.id); }}
-            goProjects={() => openNav('projects')}
+            projects={projects.filter((project) => project.assets.some((asset) => asset.kind === 'source_video')).slice(0, 4)}
+            openProject={(project) => setSelectedId(project.id)}
             createContent={() => openNav('create')}
             openQueue={() => openNav('posts')}
           />
@@ -292,10 +289,7 @@ function App() {
           <ContentStudioPage
             startVideo={() => void createProject()}
             startPhoto={() => openNav('image-posts')}
-            openProjects={() => openNav('projects')}
             openQueue={() => openNav('posts')}
-            projectCount={projects.length}
-            pendingCount={pendingCount}
           />
         ) : page === 'image-posts' ? (
           <ImagePostPage onSaved={() => { setSelectedId(null); setPage('posts'); void loadProjects(''); }} />
@@ -436,7 +430,7 @@ function ImageProjectDetail({ project, openPosts, goBack }: { project: Project; 
   const postImagesSize = postImages.reduce((total, asset) => total + asset.byte_size, 0);
   return (
     <section className="page-content image-project-detail">
-      <div className="project-back-row"><button className="text-button" onClick={goBack}><ArrowLeft size={15} />กลับไปโปรเจกต์ทั้งหมด</button></div>
+      <div className="project-back-row"><button className="text-button" onClick={goBack}><ArrowLeft size={15} />กลับหน้าหลัก</button></div>
       <PageTitle eyebrow="คลังภาพสินค้า" title={project.title} subtitle={hasOriginalImages ? 'ภาพจัดองค์ประกอบและภาพต้นฉบับที่ใช้ทำโพสต์' : 'รูปที่แนบไว้สำหรับโพสต์นี้'} action={<button className="button button-primary" onClick={openPosts}><Clapperboard size={15} />ดูรายการโพสต์</button>} />
       {postImages.length > 0 && <div className="image-project-output content-panel"><div className="image-project-output-heading"><span className="eyebrow">ภาพโพสต์</span><h2>{hasOriginalImages ? 'ภาพจัดองค์ประกอบ' : 'ภาพที่แนบไว้'}</h2><p>{postImages.length} รูป · {formatBytes(postImagesSize)} · บันทึกในเครื่องนี้</p></div><div className="image-project-gallery">{postImages.map((asset, index) => <img key={asset.id} src={assetFileUrl(asset.id)} alt={`ภาพโพสต์ ${index + 1}`} title={asset.original_name} />)}</div></div>}
       {hasOriginalImages && <div className="image-originals-panel content-panel"><div className="section-heading-row"><div><h2>ภาพต้นฉบับ <span className="count-pill">{originals.length}</span></h2><p>รูปสินค้าที่นำมาใช้สร้างภาพโพสต์</p></div></div><div className="image-original-grid">{originals.map((asset) => <img key={asset.id} src={assetFileUrl(asset.id)} alt={asset.original_name} title={asset.original_name} />)}</div></div>}
@@ -503,7 +497,7 @@ function ProjectDetail({ project, refresh, goBack, openPosts }: { project: Proje
   return (
     <section className={`page-content detail-page ${sourceReady ? 'detail-editing' : 'detail-uploading'}`}>
       <div className="detail-toolbar">
-        <button className="back-button" onClick={goBack}><ArrowLeft size={16} /><span>โปรเจกต์ทั้งหมด</span></button>
+        <button className="back-button" onClick={goBack}><ArrowLeft size={16} /><span>ศูนย์ควบคุม</span></button>
         <div className="detail-project-heading"><span className="eyebrow">โปรเจกต์วิดีโอ</span><strong>{project.title}</strong></div>
         <button className="button button-secondary product-info-trigger" onClick={() => setProductOpen(true)}><Link2 size={15} />ข้อมูลสินค้า <span>ไม่บังคับ</span></button>
       </div>
@@ -898,9 +892,9 @@ function VideoEditor({ project, refresh, openPosts, openProductInfo }: { project
   );
 }
 
-function OverviewPage({ projectCount, videoCount, pendingCount, projects, openProject, goProjects, createContent, openQueue }: {
-  projectCount: number; videoCount: number; pendingCount: number; projects: Project[]; openProject: (project: Project) => void;
-  goProjects: () => void; createContent: () => void; openQueue: () => void;
+function OverviewPage({ videoCount, pendingCount, projects, openProject, createContent, openQueue }: {
+  videoCount: number; pendingCount: number; projects: Project[]; openProject: (project: Project) => void;
+  createContent: () => void; openQueue: () => void;
 }) {
   return (
     <section className="page-content automation-overview">
@@ -918,31 +912,30 @@ function OverviewPage({ projectCount, videoCount, pendingCount, projects, openPr
         </div>
         <ol className="automation-steps">
           <li><span className="automation-step-number">01</span><div><strong>เพิ่มสื่อ</strong><small>วิดีโอหรือภาพสินค้า</small></div><ChevronRight size={17} /></li>
-          <li><span className="automation-step-number">02</span><div><strong>ให้ AI เตรียมโพสต์</strong><small>ซับ สคริปต์ หรือจัดองค์ประกอบ</small></div><ChevronRight size={17} /></li>
+          <li><span className="automation-step-number">02</span><div><strong>ให้ AI เตรียมโพสต์</strong><small>ซับ เสียง และแคปชั่น</small></div><ChevronRight size={17} /></li>
           <li><span className="automation-step-number">03</span><div><strong>ตรวจทาน</strong><small>ดูภาพ เสียง และข้อความ</small></div><ChevronRight size={17} /></li>
           <li><span className="automation-step-number">04</span><div><strong>ตั้งเวลา / เผยแพร่</strong><small>จัดการในคิวโพสต์</small></div></li>
         </ol>
       </section>
 
       <div className="stat-grid overview-stats">
-        <StatCard icon={FolderKanban} label="งานในคลัง" value={projectCount} footnote="โปรเจกต์ที่บันทึกไว้" tone="violet" />
         <StatCard icon={Film} label="วิดีโอต้นฉบับ" value={videoCount} footnote="ไฟล์ที่นำเข้าแล้ว" tone="blue" />
         <StatCard icon={Clock3} label="กำลังประมวลผล" value={pendingCount} footnote="ระบบจะอัปเดตสถานะให้อัตโนมัติ" tone="amber" />
       </div>
 
       <div className="section-heading-row overview-project-heading">
-        <div><h2>ทำงานต่อ</h2><p>เปิดงานล่าสุดเพื่อไปต่อจากจุดเดิม</p></div>
-        <button className="text-button" onClick={goProjects}>เปิดคลังงาน <ArrowUpRight size={15} /></button>
+        <div><h2>วิดีโอที่บันทึกไว้</h2><p>เปิดเพื่อทำต่อ · โพสต์ที่เตรียมแล้วจัดการในคิวโพสต์</p></div>
+        <button className="text-button" onClick={openQueue}>ดูคิวโพสต์ <ArrowUpRight size={15} /></button>
       </div>
       {projects.length
         ? <div className="project-grid compact-grid">{projects.map((project, index) => <ProjectCard key={project.id} project={project} index={index} open={() => openProject(project)} />)}</div>
-        : <div className="overview-empty content-panel"><div><span className="dropzone-icon"><FolderKanban size={21} /></span><strong>ยังไม่มีงานที่บันทึกไว้</strong><p>เริ่มด้วยภาพหรือวิดีโอ ระบบจะเก็บงานให้กลับมาทำต่อได้</p></div><button className="button button-primary" onClick={createContent}><Plus size={16} />เริ่มสร้างคอนเทนต์</button></div>}
+        : <div className="overview-empty content-panel"><div><span className="dropzone-icon"><FileVideo2 size={21} /></span><strong>ไม่มีวิดีโอที่ต้องทำต่อ</strong><p>รายการที่สร้างเสร็จแล้วอยู่ในคิวโพสต์</p></div><button className="button button-primary" onClick={createContent}><Plus size={16} />สร้างคอนเทนต์</button></div>}
     </section>
   );
 }
 
-function ContentStudioPage({ startVideo, startPhoto, openProjects, openQueue, projectCount, pendingCount }: {
-  startVideo: () => void; startPhoto: () => void; openProjects: () => void; openQueue: () => void; projectCount: number; pendingCount: number;
+function ContentStudioPage({ startVideo, startPhoto, openQueue }: {
+  startVideo: () => void; startPhoto: () => void; openQueue: () => void;
 }) {
   return (
     <section className="page-content content-studio-page">
@@ -970,7 +963,6 @@ function ContentStudioPage({ startVideo, startPhoto, openProjects, openQueue, pr
         </article>
       </div>
 
-      <div className="content-studio-footer content-panel"><strong>คลังงาน {projectCount} งาน{pendingCount > 0 ? ` · กำลังทำ ${pendingCount}` : ''}</strong><button className="text-button" onClick={openProjects}>เปิดคลังงาน<ArrowUpRight size={15} /></button></div>
     </section>
   );
 }
@@ -1089,7 +1081,7 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
           {modelName && <p className="product-input-hint">สร้างด้วย {modelName}{copySource !== productInfo.trim() || copyAffiliateSource !== affiliateUrl.trim() ? ' · ข้อมูลสินค้าหรือลิงก์เปลี่ยนแล้ว กดสร้างใหม่เพื่ออัปเดตข้อความ' : ''}</p>}
           <label className="form-label long-caption-field">แคปชั่น<textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={8} placeholder="แคปชั่นกวน ๆ ขายตรงจากข้อมูลสินค้าจะอยู่ตรงนี้" /></label>
           <label className="form-label">คอมเมนต์<textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} placeholder="ข้อความสั้นชวนกดดูสินค้า · ระบบเติมลิงก์ให้อัตโนมัติ" /></label>
-          <div className="image-save-row"><span>{!affiliateUrl.trim() ? 'ใส่ลิงก์ Affiliate ก่อนบันทึกโพสต์' : imageFiles.length ? `แนบ ${imageFiles.length} รูป · ลิงก์อยู่ในโพสต์และคอมเมนต์แล้ว` : 'ใช้ภาพที่แนบตรง ๆ ไม่มีการจัดหรือแก้ภาพด้วย AI'}</span><button className="button button-primary" onClick={() => void save()} disabled={!imageFiles.length || !caption.trim() || !affiliateUrl.trim() || saving || generating}><Save size={15} />{saving ? 'กำลังบันทึก…' : 'บันทึกดราฟต์ภาพ'}</button></div>
+          <div className="image-save-row"><span>{!affiliateUrl.trim() ? 'ใส่ลิงก์ Affiliate ก่อนบันทึกโพสต์' : imageFiles.length ? `แนบ ${imageFiles.length} รูป · บันทึกแล้วเปิดคิวโพสต์` : 'ใช้ภาพที่แนบตรง ๆ ไม่มีการจัดหรือแก้ภาพด้วย AI'}</span><button className="button button-primary" onClick={() => void save()} disabled={!imageFiles.length || !caption.trim() || !affiliateUrl.trim() || saving || generating}><Save size={15} />{saving ? 'กำลังบันทึก…' : 'บันทึกและไปคิวโพสต์'}</button></div>
         </div>
       </div>
     </section>
