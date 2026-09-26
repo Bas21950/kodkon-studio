@@ -1,10 +1,12 @@
 # กดก่อนคิดทีหลัง Studio
 
+โปรแกรมเปิดในหน้าต่างแอป Windows โดยตรงผ่าน Microsoft Edge WebView2 Runtime ไม่เปิดแท็บเบราว์เซอร์หรือหน้าต่าง CMD
+
 โปรแกรมในเครื่องสำหรับเก็บโปรเจกต์วิดีโอสินค้า แก้ซับไทย/นำเข้า SRT ปิดซับเดิมด้วยกรอบสีทึบ เลือกเพลงหรือปิดเสียงต้นฉบับ เรนเดอร์ MP4 ใช้ Gemini Free Tier สำหรับ OCR/แปล/เขียนข้อความ และเตรียมดราฟต์/คิวเวลาโพสต์พร้อมลิงก์ Affiliate
 
 ## ติดตั้งจาก GitHub Release
 
-ดาวน์โหลด `kodkon-studio-<version>-windows-setup.exe` จาก [GitHub Releases](https://github.com/Bas21950/kodkon-studio/releases) แล้วทำตามหน้าติดตั้ง โปรแกรมจะสร้าง shortcut บน Desktop และ Start Menu โดยอัตโนมัติ หรือใช้ portable ZIP แล้วดับเบิลคลิก `Start Studio.bat` ก็ได้
+ดาวน์โหลด `kodkon-studio-<version>-windows-setup.exe` จาก [GitHub Releases](https://github.com/Bas21950/kodkon-studio/releases) แล้วทำตามหน้าติดตั้ง โปรแกรมจะสร้าง shortcut บน Desktop และ Start Menu โดยอัตโนมัติ หรือใช้ portable ZIP แล้วดับเบิลคลิก `Start Studio.vbs` ก็ได้
 
 หากติดตั้งทับชุดที่อยู่ใน `E:\Shopee Affiliate` ให้เลือกโฟลเดอร์เดิมเป็นตำแหน่งติดตั้ง หรือรัน Setup ด้วย `/DIR="E:\Shopee Affiliate"` ตัวติดตั้งไม่รวมและไม่ลบโฟลเดอร์ `Data` หรือ `Backups` ซึ่งเก็บฐานข้อมูลงาน คีย์ และไฟล์สื่อไว้
 
@@ -12,6 +14,7 @@
 
 - Windows 10/11 64-bit
 - Python 3.11 ขึ้นไป (ทดสอบเบื้องต้นกับ Python 3.14.4)
+- Microsoft Edge WebView2 Runtime (มีให้ใน Windows 11; Windows 10 ติดตั้งได้จากลิงก์ที่โปรแกรมแจ้ง)
 - Node.js 22.12 ขึ้นไปเฉพาะเมื่อ build หน้าจอจาก source (ทดสอบเบื้องต้นกับ Node 24.13.0); portable ZIP ใช้หน้าจอที่ build ไว้แล้ว
 - FFmpeg และ FFprobe อยู่ใน PATH
 - อินเทอร์เน็ตใช้ติดตั้ง dependencies และเมื่อต้องการเรียก Gemini

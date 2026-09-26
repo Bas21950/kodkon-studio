@@ -474,10 +474,10 @@ def install_application_update(request: Request):
     powershell = shutil.which("powershell.exe")
     update_script = PROJECT_ROOT / "scripts" / "apply-update.ps1"
     if not install_root_value or not powershell or not update_script.is_file():
-        raise HTTPException(status_code=409, detail="เปิดโปรแกรมผ่าน Start Studio.bat ในโฟลเดอร์ติดตั้งก่อนจึงจะอัปเดตได้")
+        raise HTTPException(status_code=409, detail="เปิดโปรแกรมจาก shortcut บน Desktop หรือ Start Studio.vbs ในโฟลเดอร์ติดตั้งก่อนจึงจะอัปเดตได้")
     install_root = Path(install_root_value).expanduser().resolve()
     expected_project = (install_root / "App" / "KodKon Studio").resolve()
-    if expected_project != PROJECT_ROOT.resolve() or not (install_root / "Start Studio.bat").is_file():
+    if expected_project != PROJECT_ROOT.resolve() or not (install_root / "Start Studio.vbs").is_file():
         raise HTTPException(status_code=409, detail="ตำแหน่งติดตั้งไม่ตรงกับตัวโปรแกรมที่กำลังเปิดอยู่")
 
     with SessionLocal() as session:

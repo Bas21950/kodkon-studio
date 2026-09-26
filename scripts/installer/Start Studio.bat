@@ -1,2 +1,2 @@
 @echo off
-powershell.exe -NoExit -ExecutionPolicy Bypass -File "%~dp0Start Studio.ps1"
+wscript.exe //B //NoLogo "%~dp0Start Studio.vbs"

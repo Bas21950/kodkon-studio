@@ -14,7 +14,7 @@ $work = Join-Path $env:TEMP ('kodkon-update-' + [guid]::NewGuid().ToString('N'))
 $stage = Join-Path $work 'stage'
 $backup = Join-Path $work 'backup'
 $approvedRoots = @('App\KodKon Studio\backend\app\', 'App\KodKon Studio\backend\alembic\', 'App\KodKon Studio\frontend\dist\', 'App\KodKon Studio\frontend\public\', 'App\KodKon Studio\frontend\src\', 'App\KodKon Studio\scripts\', 'App\KodKon Studio\docs\')
-$approvedFiles = @('App\KodKon Studio\README.md', 'App\KodKon Studio\backend\alembic.ini', 'App\KodKon Studio\backend\pyproject.toml', 'App\KodKon Studio\backend\requirements.txt', 'App\KodKon Studio\frontend\index.html', 'App\KodKon Studio\frontend\package.json', 'App\KodKon Studio\frontend\package-lock.json', 'App\KodKon Studio\frontend\tsconfig.app.json', 'App\KodKon Studio\frontend\tsconfig.json', 'App\KodKon Studio\frontend\tsconfig.node.json', 'App\KodKon Studio\frontend\vite.config.ts', 'Start Studio.bat', 'Start Studio.ps1', 'README.txt')
+$approvedFiles = @('App\KodKon Studio\README.md', 'App\KodKon Studio\backend\alembic.ini', 'App\KodKon Studio\backend\pyproject.toml', 'App\KodKon Studio\backend\requirements.txt', 'App\KodKon Studio\frontend\index.html', 'App\KodKon Studio\frontend\package.json', 'App\KodKon Studio\frontend\package-lock.json', 'App\KodKon Studio\frontend\tsconfig.app.json', 'App\KodKon Studio\frontend\tsconfig.json', 'App\KodKon Studio\frontend\tsconfig.node.json', 'App\KodKon Studio\frontend\vite.config.ts', 'Start Studio.bat', 'Start Studio.vbs', 'Start Studio.ps1', 'README.txt')
 $copiedPaths = [System.Collections.Generic.List[string]]::new()
 $originalPaths = [System.Collections.Generic.List[string]]::new()
 $newPaths = [System.Collections.Generic.List[string]]::new()
@@ -38,7 +38,7 @@ function Remove-OwnedTempDirectory([string]$Path) {
 
 try {
     if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'ไม่พบไฟล์อัปเดตที่ดาวน์โหลดมา' }
-    if (-not (Test-Path -LiteralPath (Join-Path $install 'Start Studio.bat') -PathType Leaf)) { throw 'ไม่พบ Start Studio.bat ในโฟลเดอร์ติดตั้ง' }
+    if (-not (Test-Path -LiteralPath (Join-Path $install 'Start Studio.vbs') -PathType Leaf)) { throw 'ไม่พบ Start Studio.vbs ในโฟลเดอร์ติดตั้ง' }
     if (-not (Test-Path -LiteralPath $project -PathType Container)) { throw 'ไม่พบโฟลเดอร์โปรแกรมในตำแหน่งติดตั้ง' }
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
     New-Item -ItemType Directory -Path $backup -Force | Out-Null
@@ -85,13 +85,26 @@ try {
     Start-Sleep -Seconds 2
     $server = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
     if ($server) {
-        $expectedPython = [System.IO.Path]::GetFullPath((Join-Path $project 'backend\.venv\Scripts\python.exe'))
-        if ($server.ProcessName -ne 'python' -or [System.IO.Path]::GetFullPath($server.Path) -ne $expectedPython) {
+        $serverInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+        $expectedPython = [System.IO.Path]::GetFullPath((Join-Path $project 'backend\.venv\Scripts\pythonw.exe'))
+        if ($server.ProcessName -notin @('pythonw', 'python') -or -not $serverInfo -or $serverInfo.CommandLine -notlike "*$expectedPython*") {
             throw 'ยืนยันโปรเซสของโปรแกรมไม่ได้ · ไม่ได้ปิดโปรเซสใด'
+        }
+        $launcherProcessId = 0
+        $ancestorId = [int]$serverInfo.ParentProcessId
+        for ($depth = 0; $depth -lt 8 -and $ancestorId -gt 0; $depth++) {
+            $ancestor = Get-CimInstance Win32_Process -Filter "ProcessId = $ancestorId" -ErrorAction SilentlyContinue
+            if (-not $ancestor) { break }
+            if ($ancestor.Name -match '^powershell(\.exe)?$' -and $ancestor.CommandLine -like "*start-desktop.ps1*") {
+                $launcherProcessId = [int]$ancestor.ProcessId
+                break
+            }
+            $ancestorId = [int]$ancestor.ParentProcessId
         }
         Stop-Process -Id $ProcessId -Force
         $server.WaitForExit()
         $serverStopped = $true
+        if ($launcherProcessId) { Wait-Process -Id $launcherProcessId -Timeout 30 -ErrorAction SilentlyContinue }
     }
 
     foreach ($relative in $copiedPaths) {
@@ -110,7 +123,7 @@ try {
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $project 'frontend\dist\index.html') -PathType Leaf)) { throw 'ตรวจสอบไฟล์หน้าจอหลังอัปเดตไม่ผ่าน' }
-    Start-Process -FilePath (Join-Path $install 'Start Studio.bat') -WorkingDirectory $install
+    Start-Process -FilePath (Join-Path $install 'Start Studio.vbs') -WorkingDirectory $install
 } catch {
     foreach ($relative in $originalPaths) {
         $source = Join-Path $backup $relative
@@ -122,8 +135,8 @@ try {
         if (Test-Path -LiteralPath $destination -PathType Leaf) { Remove-Item -LiteralPath $destination -Force }
     }
     Show-UpdateError $_.Exception.Message
-    if ($serverStopped -and (Test-Path -LiteralPath (Join-Path $install 'Start Studio.bat') -PathType Leaf)) {
-        Start-Process -FilePath (Join-Path $install 'Start Studio.bat') -WorkingDirectory $install
+    if ($serverStopped -and (Test-Path -LiteralPath (Join-Path $install 'Start Studio.vbs') -PathType Leaf)) {
+        Start-Process -FilePath (Join-Path $install 'Start Studio.vbs') -WorkingDirectory $install
     }
 } finally {
     if (Test-Path -LiteralPath $work) { Remove-OwnedTempDirectory $work }

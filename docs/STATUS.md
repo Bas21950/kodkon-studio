@@ -58,7 +58,7 @@
 - หน้า Settings ดาวน์โหลด backup ZIP ซึ่งทำ SQLite online snapshot รวมฐานข้อมูลและ media โดยไม่รวม DPAPI secrets; response ลบไฟล์ชั่วคราวหลังดาวน์โหลด
 - `scripts/restore.ps1` เรียกตัวตรวจ/กู้คืนแบบออฟไลน์ ตรวจ path ใน ZIP, symlink, manifest, SQLite integrity และ schema version ก่อนแทนข้อมูล ป้องกันการกู้คืนขณะแอปยังเปิดอยู่ ขอพิมพ์ `RESTORE` และเก็บ rollback backup ของฐานข้อมูล/media ปัจจุบันก่อน
 - ตอนเริ่มแอปล้างเฉพาะไฟล์อัปโหลด/OCR/render ชั่วคราวที่เก่ากว่า 24 ชั่วโมง
-- `scripts/package.py` สร้าง Windows portable ZIP พร้อม launcher และ frontend ที่ build แล้ว; แตกลงโฟลเดอร์เครื่องแล้วเปิดผ่าน `Start Studio.bat`
+- `scripts/package.py` สร้าง Windows portable ZIP พร้อม launcher และ frontend ที่ build แล้ว; แตกลงโฟลเดอร์เครื่องแล้วเปิดผ่าน `Start Studio.vbs` เพื่อเข้าหน้าต่างแอปโดยตรง
 - GitHub Release updater แสดงหมายเลขเวอร์ชัน/Release notes, ดาวน์โหลดไฟล์จาก repo Public, ตรวจ SHA-256 และอัปเดตตาม allowlist ที่ไม่รวม Data/Backups; บล็อกการอัปเดตเมื่อมีงานค้าง
 - `.github/workflows/publish-release.yml` รันทดสอบ backend, build frontend และเผยแพร่ ZIP พร้อม checksum เมื่อ push tag `v*` ที่ตรงกับ `app_version`
 - ยังเหลือทดสอบติดตั้ง, restore และอัปเดต end-to-end บนเครื่องสะอาดจริง; package ยังต้องใช้ Python, FFmpeg/FFprobe และอินเทอร์เน็ตเพื่อติดตั้ง Python dependencies ครั้งแรก

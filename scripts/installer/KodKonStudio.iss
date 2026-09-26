@@ -1,5 +1,5 @@
 #ifndef AppVersion
-#define AppVersion "0.3.0"
+#define AppVersion "0.4.0"
 #endif
 
 [Setup]
@@ -29,8 +29,8 @@ SetupLogging=yes
 Source: "..\..\release\installer-input\*"; DestDir: "{app}"; Excludes: "package-manifest.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\กดก่อนคิดทีหลัง Studio"; Filename: "{app}\Start Studio.bat"; WorkingDir: "{app}"; IconFilename: "{app}\App\KodKon Studio\frontend\public\kodkon-studio.ico"; Comment: "สร้างและจัดการโพสต์ภาพ/วิดีโอ"
-Name: "{autodesktop}\กดก่อนคิดทีหลัง Studio"; Filename: "{app}\Start Studio.bat"; WorkingDir: "{app}"; IconFilename: "{app}\App\KodKon Studio\frontend\public\kodkon-studio.ico"; Comment: "สร้างและจัดการโพสต์ภาพ/วิดีโอ"
+Name: "{autoprograms}\กดก่อนคิดทีหลัง Studio"; Filename: "{app}\Start Studio.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\App\KodKon Studio\frontend\public\kodkon-studio.ico"; Comment: "สร้างและจัดการโพสต์ภาพ/วิดีโอ"
+Name: "{autodesktop}\กดก่อนคิดทีหลัง Studio"; Filename: "{app}\Start Studio.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\App\KodKon Studio\frontend\public\kodkon-studio.ico"; Comment: "สร้างและจัดการโพสต์ภาพ/วิดีโอ"
 
 [Run]
-Filename: "{app}\Start Studio.bat"; Description: "เปิด กดก่อนคิดทีหลัง Studio"; Flags: postinstall nowait skipifsilent shellexec
+Filename: "{app}\Start Studio.vbs"; Description: "เปิด กดก่อนคิดทีหลัง Studio"; Flags: postinstall nowait skipifsilent shellexec

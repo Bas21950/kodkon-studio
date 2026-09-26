@@ -71,6 +71,7 @@ def main() -> int:
     install_prefix = Path("App") / "KodKon Studio"
     install_files = [
         (ROOT / "scripts" / "installer" / "Start Studio.bat", Path("Start Studio.bat")),
+        (ROOT / "scripts" / "installer" / "Start Studio.vbs", Path("Start Studio.vbs")),
         (ROOT / "scripts" / "installer" / "Start Studio.ps1", Path("Start Studio.ps1")),
         (ROOT / "scripts" / "installer" / "README.txt", Path("README.txt")),
     ]
