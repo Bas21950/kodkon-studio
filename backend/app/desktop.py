@@ -80,7 +80,7 @@ def run_desktop() -> None:
     logger.info("Desktop window is opening; data directory: %s", settings.data_dir)
     webview.create_window(
         "กดก่อนคิดทีหลัง Studio",
-        "http://127.0.0.1:8765",
+        f"http://127.0.0.1:8765/?v={settings.app_version}",
         width=1440,
         height=920,
         min_size=(980, 680),
