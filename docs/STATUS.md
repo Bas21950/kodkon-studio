@@ -9,6 +9,7 @@
 - อัปโหลดวิดีโอ/เพลง ตรวจชนิดไฟล์ ขนาด SHA-256 และอ่าน metadata ด้วย FFprobe
 - เก็บไฟล์ต้นฉบับแยกจาก source code และมี durable job/event log พร้อมกู้คิวหลังปิดโปรแกรม
 - Windows launcher, คู่มือเริ่มใช้ และ health/capability check
+- Windows Setup `.exe`, ไอคอนโปรแกรม และ shortcut บน Desktop/Start Menu
 
 ## Phase 2: ตัดต่อในเครื่องโดยไม่พึ่ง AI — เสร็จ
 

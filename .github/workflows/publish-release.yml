@@ -36,6 +36,11 @@ jobs:
           python -m pytest
           if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed' }
 
+      - name: Build multi-resolution Windows icon
+        shell: powershell
+        run: |
+          & .\scripts\create-icon.ps1
+
       - name: Build web interface
         working-directory: frontend
         run: |
@@ -54,6 +59,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Package creation failed' }
           $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -LiteralPath "$package.sha256" -Value "$hash  $(Split-Path -Leaf $package)" -Encoding ascii
+          Expand-Archive -LiteralPath $package -DestinationPath release/installer-input -Force
+
+      - name: Install Inno Setup compiler
+        shell: powershell
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+
+      - name: Build Windows setup installer
+        shell: powershell
+        run: |
+          $config = Get-Content backend/app/config.py -Raw
+          $version = [regex]::Match($config, 'app_version:\s*str\s*=\s*"([^"]+)"').Groups[1].Value
+          $compilerCandidates = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe")
+          $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $compiler) { throw 'Could not locate ISCC.exe after installing Inno Setup' }
+          & $compiler "-DAppVersion=`"$version`"" "scripts/installer/KodKonStudio.iss"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Setup compilation failed' }
+          $installer = "release/kodkon-studio-$version-windows-setup.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw 'Setup EXE was not created' }
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "$installer.sha256" -Value "$hash  $(Split-Path -Leaf $installer)" -Encoding ascii
 
       - name: Publish GitHub Release
         env:
@@ -73,4 +100,5 @@ jobs:
           $notesPath = Join-Path $env:RUNNER_TEMP "release-notes-$version.md"
           Set-Content -LiteralPath $notesPath -Value $notes -Encoding utf8
           $package = "release/kodkon-studio-$version-windows-portable.zip"
-          gh release create $env:GITHUB_REF_NAME $package "$package.sha256" --title "กดก่อนคิดทีหลัง Studio v$version" --notes-file $notesPath
+          $installer = "release/kodkon-studio-$version-windows-setup.exe"
+          gh release create $env:GITHUB_REF_NAME $installer "$installer.sha256" $package "$package.sha256" --title "กดก่อนคิดทีหลัง Studio v$version" --notes-file $notesPath

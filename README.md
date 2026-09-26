@@ -4,7 +4,9 @@
 
 ## ติดตั้งจาก GitHub Release
 
-ดาวน์โหลด `kodkon-studio-<version>-windows-portable.zip` จาก Releases แล้วแตกไฟล์ทั้งหมดลงโฟลเดอร์ที่ต้องการ จากนั้นดับเบิลคลิก `Start Studio.bat` ข้อมูลจะอยู่ในโฟลเดอร์ `Data` ข้าง ๆ และไม่อยู่ใน ZIP; เมื่อติดตั้งทับชุดเดิม อย่าลบ `Data` หรือ `Backups`
+ดาวน์โหลด `kodkon-studio-<version>-windows-setup.exe` จาก [GitHub Releases](https://github.com/Bas21950/kodkon-studio/releases) แล้วทำตามหน้าติดตั้ง โปรแกรมจะสร้าง shortcut บน Desktop และ Start Menu โดยอัตโนมัติ หรือใช้ portable ZIP แล้วดับเบิลคลิก `Start Studio.bat` ก็ได้
+
+หากติดตั้งทับชุดที่อยู่ใน `E:\Shopee Affiliate` ให้เลือกโฟลเดอร์เดิมเป็นตำแหน่งติดตั้ง หรือรัน Setup ด้วย `/DIR="E:\Shopee Affiliate"` ตัวติดตั้งไม่รวมและไม่ลบโฟลเดอร์ `Data` หรือ `Backups` ซึ่งเก็บฐานข้อมูลงาน คีย์ และไฟล์สื่อไว้
 
 ## ความต้องการเครื่อง
 
@@ -22,7 +24,7 @@
 4. สคริปต์สร้าง Python virtual environment, ติดตั้งแพ็กเกจ และเปิดเซิร์ฟเวอร์ที่ `http://127.0.0.1:8765`; จะ build หน้าจอเมื่อไม่มี build พร้อมใช้หรือ source ใหม่กว่า
 5. กด Ctrl+C ในหน้าต่าง PowerShell เพื่อปิดโปรแกรม
 
-เมื่อใช้ portable ZIP ไม่ต้องติดตั้ง Node.js; ต้องมี Python และ FFmpeg/FFprobe ตามข้อกำหนด สคริปต์ติดตั้ง Python dependencies ให้เมื่อเริ่มครั้งแรก
+ตัวติดตั้งและ portable ZIP ไม่ต้องติดตั้ง Node.js; ต้องมี Python และ FFmpeg/FFprobe ตามข้อกำหนด สคริปต์ติดตั้ง Python dependencies ให้เมื่อเริ่มครั้งแรก
 
 ## สร้าง portable ZIP จาก source
 
@@ -30,7 +32,7 @@
 
 ## ตรวจสอบและติดตั้งอัปเดต
 
-ชุดติดตั้งในเครื่องนี้ใช้ `Start Studio.bat` จากโฟลเดอร์ติดตั้งเพื่อส่งตำแหน่งโปรแกรมให้ตัวอัปเดต ในหน้า “ตั้งค่าโปรแกรม” กด “ตรวจสอบอัปเดต” เพื่ออ่านเวอร์ชันและ Release notes จาก GitHub; หากมีเวอร์ชันใหม่ กด “ดาวน์โหลดและติดตั้ง” โปรแกรมจะตรวจ SHA-256 ปิดแล้วเปิดใหม่เอง อัปเดตเฉพาะโค้ดใต้ `App\KodKon Studio` และไม่แตะโฟลเดอร์ `Data` การเผยแพร่ทำโดย push tag ที่ตรงกับ `app_version` เช่น `v0.2.0`; GitHub Actions จะทดสอบ สร้าง ZIP และเผยแพร่ Release notes
+ชุดติดตั้งในเครื่องนี้ใช้ `Start Studio.bat` จากโฟลเดอร์ติดตั้งเพื่อส่งตำแหน่งโปรแกรมให้ตัวอัปเดต ในหน้า “ตั้งค่าโปรแกรม” กด “ตรวจสอบอัปเดต” เพื่ออ่านเวอร์ชันและ Release notes จาก GitHub; หากมีเวอร์ชันใหม่ กด “ดาวน์โหลดและติดตั้ง” โปรแกรมจะตรวจ SHA-256 ปิดแล้วเปิดใหม่เอง อัปเดตเฉพาะโค้ดใต้ `App\KodKon Studio` และไม่แตะโฟลเดอร์ `Data` การเผยแพร่ทำโดย push tag ที่ตรงกับ `app_version`; GitHub Actions ทดสอบ สร้าง Setup `.exe`, portable ZIP และ Release notes
 
 ## เปิดแบบพัฒนา
 
