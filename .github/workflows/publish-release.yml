@@ -28,6 +28,23 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$parseErrors) | Out-Null
           if ($parseErrors) { throw ($parseErrors | ForEach-Object { $_.ToString() } | Out-String) }
 
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$parseErrors)
+          $statusFunction = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-UpdateStatus' }, $true)
+          if (-not $statusFunction) { throw 'Updater status function is missing' }
+          Invoke-Expression $statusFunction.Extent.Text
+          $statusFile = Join-Path $env:RUNNER_TEMP ('kodkon-update-status-test-' + [guid]::NewGuid().ToString('N') + '.json')
+          $Version = 'test'
+          try {
+            Set-Content -LiteralPath $statusFile -Value '{}' -Encoding UTF8
+            for ($index = 1; $index -le 81; $index++) {
+              Write-UpdateStatus 'installing' 80 "Extracted $index of 81"
+            }
+            $result = Get-Content -LiteralPath $statusFile -Raw | ConvertFrom-Json
+            if ($result.status -ne 'installing' -or $result.version -ne 'test') { throw 'Updater status roundtrip failed' }
+          } finally {
+            Remove-Item -LiteralPath $statusFile -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

@@ -32,11 +32,25 @@ function Write-UpdateStatus([string]$Status, [int]$Progress, [string]$Message) {
         message = $Message
     } | ConvertTo-Json -Compress
     $temporaryStatus = $statusFile + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    $previousStatus = $statusFile + '.' + [guid]::NewGuid().ToString('N') + '.bak'
     try {
         Set-Content -LiteralPath $temporaryStatus -Value $payload -Encoding UTF8
-        Move-Item -LiteralPath $temporaryStatus -Destination $statusFile -Force
+        for ($attempt = 0; $attempt -lt 8; $attempt++) {
+            try {
+                if ([System.IO.File]::Exists($statusFile)) {
+                    [System.IO.File]::Replace($temporaryStatus, $statusFile, $previousStatus)
+                } else {
+                    [System.IO.File]::Move($temporaryStatus, $statusFile)
+                }
+                return
+            } catch {
+                if ($attempt -eq 7) { throw }
+                Start-Sleep -Milliseconds (50 * ($attempt + 1))
+            }
+        }
     } finally {
         if (Test-Path -LiteralPath $temporaryStatus) { Remove-Item -LiteralPath $temporaryStatus -Force }
+        if (Test-Path -LiteralPath $previousStatus) { Remove-Item -LiteralPath $previousStatus -Force }
     }
 }
 
