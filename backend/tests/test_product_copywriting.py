@@ -67,7 +67,7 @@ def test_image_caption_prompt_uses_natural_thai_and_covers_key_facts():
     assert "Affiliate link จริงต่อท้าย" in prompt
     assert "กวน แสบ มั่นใจ แหวกแนว" not in prompt
     assert "เรียบเรียงใจความใหม่ให้อ่านลื่น" in prompt
-    assert "เลือกเฉพาะ 2–4 จุด" in prompt
+    assert "เลือกเฉพาะรายละเอียดที่ช่วยให้เข้าใจหรือตัดสินใจได้" in prompt
     assert "ตัดแฮชแท็กที่แปะมาเป็นพรืด" in prompt
     assert "ห้ามแต่งสเปก คะแนนรีวิว" in prompt
 
