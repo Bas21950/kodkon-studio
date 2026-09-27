@@ -15,6 +15,19 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Validate updater with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $script = Join-Path $PWD 'scripts\apply-update.ps1'
+          $bytes = [System.IO.File]::ReadAllBytes($script)
+          if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+            throw 'Updater must have a UTF-8 BOM so Windows PowerShell 5.1 reads Thai text correctly'
+          }
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors) { throw ($parseErrors | ForEach-Object { $_.ToString() } | Out-String) }
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
