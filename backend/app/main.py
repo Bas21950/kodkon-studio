@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -477,6 +478,78 @@ def _update_status_path() -> Path | None:
     return path
 
 
+def _update_installer_log_tail(log_path: Path) -> str:
+    try:
+        with log_path.open("rb") as log_file:
+            log_file.seek(max(0, log_path.stat().st_size - 4096))
+            return log_file.read().decode("utf-8", errors="replace").strip()[-2000:]
+    except OSError:
+        return ""
+
+
+def _watch_update_installer(
+    installer: subprocess.Popen,
+    update_id: str,
+    version: str,
+    status_path: Path,
+    log_path: Path,
+    archive_path: Path,
+) -> None:
+    last_status: tuple[str, int, str] | None = None
+    last_change = time.monotonic()
+    heartbeat_timeout = 120
+
+    while True:
+        progress = get_update_progress(update_id, settings.app_version, status_path)
+        now = time.monotonic()
+        if progress:
+            try:
+                progress_value = int(progress.get("progress", 0))
+            except (TypeError, ValueError):
+                progress_value = 0
+            signature = (str(progress.get("status")), progress_value, str(progress.get("message", "")))
+            if signature != last_status:
+                last_status = signature
+                last_change = now
+            if progress.get("status") in {"completed", "failed"}:
+                return
+
+        exit_code = installer.poll()
+        if exit_code is not None:
+            details = _update_installer_log_tail(log_path)
+            logger.error("Update installer exited before reporting completion (exit=%s): %s", exit_code, details or "no installer output")
+            message = "ตัวติดตั้งหยุดก่อนรายงานว่าเสร็จ · เปิดโปรแกรมใหม่แล้วลองอัปเดตอีกครั้ง"
+            if details:
+                message = f"{message} · {details[-500:]}"
+            set_update_progress(update_id, version, "failed", 0, message, status_path)
+            archive_path.unlink(missing_ok=True)
+            return
+
+        if now - last_change > heartbeat_timeout:
+            try:
+                installer.terminate()
+                installer.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    installer.kill()
+                except OSError:
+                    pass
+            details = _update_installer_log_tail(log_path)
+            logger.error("Update installer stopped reporting progress for %ss: %s", heartbeat_timeout, details or "no installer output")
+            set_update_progress(
+                update_id,
+                version,
+                "failed",
+                0,
+                "ตัวติดตั้งไม่รายงานความคืบหน้าเกิน 2 นาที · เปิดโปรแกรมใหม่แล้วลองอีกครั้ง",
+                status_path,
+            )
+            archive_path.unlink(missing_ok=True)
+            return
+
+        time.sleep(0.5)
+
+
 def _install_update_in_background(requested_version: str, update_id: str, status_path: Path, install_root: Path, update_script: Path, process_id: int) -> None:
     version = requested_version
     archive_path: Path | None = None
@@ -521,9 +594,26 @@ def _install_update_in_background(requested_version: str, update_id: str, status
             "-StatusPath",
             str(status_path),
         ]
-        set_update_progress(update_id, version, "installing", 80, "ไฟล์ปลอดภัยแล้ว · กำลังติดตั้งและเตรียมเปิดโปรแกรมใหม่", status_path)
-        subprocess.Popen(command, cwd=str(install_root), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        set_update_progress(update_id, version, "restarting", 88, "ติดตั้งไฟล์แล้ว · กำลังปิดและเปิดโปรแกรมใหม่", status_path)
+        set_update_progress(update_id, version, "installing", 80, "ไฟล์ปลอดภัยแล้ว · กำลังเริ่มตัวติดตั้ง", status_path)
+        installer_log = status_path.with_suffix(".log")
+        with installer_log.open("wb") as log_file:
+            installer = subprocess.Popen(
+                command,
+                cwd=str(install_root),
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+            )
+        watcher = threading.Thread(
+            target=_watch_update_installer,
+            args=(installer, update_id, version, status_path, installer_log, archive_path),
+            name="kodkon-update-watchdog",
+            daemon=True,
+        )
+        watcher.start()
+        archive_path = None  # The updater script or watchdog removes its verified archive.
     except Exception as exc:
         if archive_path is not None:
             archive_path.unlink(missing_ok=True)

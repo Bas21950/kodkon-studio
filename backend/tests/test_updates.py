@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from urllib.error import HTTPError
 
 import pytest
 
 from app.services import updates
+from app import main as main_module
 
 
 class FakeResponse:
@@ -145,3 +148,28 @@ def test_bad_sha256_aborts_and_removes_the_temporary_package(monkeypatch):
 
     with pytest.raises(updates.UpdateError, match="SHA-256 ไม่ผ่าน"):
         updates.download_verified_update(update)
+
+
+def test_update_watchdog_reports_installer_exit_instead_of_leaving_stale_progress(tmp_path):
+    update_id = "b" * 32
+    status_path = tmp_path / f"kodkon-update-status-{update_id}.json"
+    log_path = tmp_path / "installer.log"
+    archive_path = tmp_path / "update.zip"
+    archive_path.write_bytes(b"verified package")
+    updates.set_update_progress(update_id, "0.4.8", "installing", 88, "กำลังปิดโปรแกรมเดิม", status_path)
+
+    with log_path.open("wb") as log_file:
+        installer = subprocess.Popen(
+            [sys.executable, "-c", "print('mock installer failure'); raise SystemExit(7)"],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+    assert installer.wait(timeout=10) == 7
+
+    main_module._watch_update_installer(installer, update_id, "0.4.8", status_path, log_path, archive_path)
+
+    progress = updates.get_update_progress(update_id, main_module.settings.app_version, status_path)
+    assert progress is not None
+    assert progress["status"] == "failed"
+    assert "mock installer failure" in progress["message"]
+    assert not archive_path.exists()

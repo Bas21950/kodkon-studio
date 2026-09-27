@@ -6,6 +6,7 @@ import os
 import re
 import tempfile
 import threading
+import uuid
 from pathlib import Path
 from typing import Callable
 from urllib.error import HTTPError, URLError
@@ -46,9 +47,12 @@ def set_update_progress(
     with _progress_lock:
         _current_progress = result
     if status_path is not None:
-        temporary = status_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(status_path)
+        temporary = status_path.with_name(f"{status_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            temporary.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(status_path)
+        finally:
+            temporary.unlink(missing_ok=True)
     return result
 
 

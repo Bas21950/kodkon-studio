@@ -31,9 +31,13 @@ function Write-UpdateStatus([string]$Status, [int]$Progress, [string]$Message) {
         progress = [Math]::Max(0, [Math]::Min(100, $Progress))
         message = $Message
     } | ConvertTo-Json -Compress
-    $temporaryStatus = $statusFile + '.tmp'
-    Set-Content -LiteralPath $temporaryStatus -Value $payload -Encoding UTF8
-    Move-Item -LiteralPath $temporaryStatus -Destination $statusFile -Force
+    $temporaryStatus = $statusFile + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        Set-Content -LiteralPath $temporaryStatus -Value $payload -Encoding UTF8
+        Move-Item -LiteralPath $temporaryStatus -Destination $statusFile -Force
+    } finally {
+        if (Test-Path -LiteralPath $temporaryStatus) { Remove-Item -LiteralPath $temporaryStatus -Force }
+    }
 }
 
 function Start-InstalledApp {
@@ -103,7 +107,7 @@ try {
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($zipEntry, $target, $true)
             $copiedPaths.Add($relative)
             $entryIndex++
-            $extractProgress = 10 + [int](55 * $entryIndex / [Math]::Max(1, $entryCount))
+            $extractProgress = 80 + [int](8 * $entryIndex / [Math]::Max(1, $entryCount))
             Write-UpdateStatus 'installing' $extractProgress "เตรียมไฟล์อัปเดต $entryIndex จาก $entryCount"
         }
     } finally { $zip.Dispose() }
@@ -112,7 +116,7 @@ try {
     Set-Content -LiteralPath (Join-Path $stage 'App\KodKon Studio\frontend\.portable-build') -Value 'Prebuilt frontend included in this portable package.' -Encoding utf8
     $copiedPaths.Add('App\KodKon Studio\frontend\.portable-build')
 
-    Write-UpdateStatus 'installing' 68 'เตรียมไฟล์เสร็จ · กำลังปิดโปรแกรมเดิมอย่างปลอดภัย'
+    Write-UpdateStatus 'installing' 88 'เตรียมไฟล์เสร็จ · กำลังปิดโปรแกรมเดิมอย่างปลอดภัย'
     # Wait for the API process to exit before replacing files it has loaded.
     Start-Sleep -Seconds 2
     $server = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
@@ -157,12 +161,12 @@ try {
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Copy-Item -LiteralPath $source -Destination $destination -Force
         $copyIndex++
-        $copyProgress = 68 + [int](24 * $copyIndex / [Math]::Max(1, $copiedPaths.Count))
+        $copyProgress = 88 + [int](8 * $copyIndex / [Math]::Max(1, $copiedPaths.Count))
         Write-UpdateStatus 'installing' $copyProgress "ติดตั้งไฟล์ $copyIndex จาก $($copiedPaths.Count)"
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $project 'frontend\dist\index.html') -PathType Leaf)) { throw 'ตรวจสอบไฟล์หน้าจอหลังอัปเดตไม่ผ่าน' }
-    Write-UpdateStatus 'restarting' 94 'ติดตั้งเสร็จ · กำลังเปิดโปรแกรมเวอร์ชันใหม่'
+    Write-UpdateStatus 'restarting' 97 'ติดตั้งเสร็จ · กำลังเปิดโปรแกรมเวอร์ชันใหม่'
     Start-Sleep -Milliseconds 800
     Start-InstalledApp
     $ready = $false
