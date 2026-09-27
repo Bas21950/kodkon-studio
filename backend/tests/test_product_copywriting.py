@@ -69,7 +69,7 @@ def test_image_caption_prompt_uses_natural_thai_and_covers_key_facts():
     assert "เรียบเรียงใจความใหม่ให้อ่านลื่น" in prompt
     assert "เลือกเฉพาะรายละเอียดที่ช่วยให้เข้าใจหรือตัดสินใจได้" in prompt
     assert "ไม่ต้องแจกแจงสเปกทุกข้อหรือทำรายการยาว" in prompt
-    assert "ห้ามแต่งสเปก คะแนนรีวิว" in prompt
+    assert "ห้ามแต่งชื่อยี่ห้อ/รุ่น สเปก ราคา โปร คะแนน รีวิว" in prompt
 
 
 def test_product_links_must_be_public_http_urls():
