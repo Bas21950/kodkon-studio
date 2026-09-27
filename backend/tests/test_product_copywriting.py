@@ -66,7 +66,7 @@ def test_image_caption_prompt_uses_natural_thai_and_covers_key_facts():
     assert "เหมาะกับใครหรือสถานการณ์ไหน" in prompt
     assert "Affiliate link จริงต่อท้าย" in prompt
     assert "กวน แสบ มั่นใจ แหวกแนว" not in prompt
-    assert "ห้ามคัดประโยคหรือย่อหน้าจากต้นฉบับมาวางตรง ๆ" in prompt
+    assert "เรียบเรียงใจความใหม่ให้อ่านลื่น" in prompt
     assert "เลือกเฉพาะ 2–4 จุด" in prompt
     assert "ตัดแฮชแท็กที่แปะมาเป็นพรืด" in prompt
     assert "ห้ามแต่งสเปก คะแนนรีวิว" in prompt
@@ -191,7 +191,7 @@ def test_image_copy_generation_sends_only_product_text_to_ai(product_client, mon
     assert response.status_code == 200, response.text
     assert product_info in captured["prompt"]
     assert "ไม่ต้องกวน ไม่เล่นมุก ไม่ฮาร์ดเซล" in captured["prompt"]
-    assert "ห้ามคัดประโยคหรือย่อหน้าจากต้นฉบับมาวางตรง ๆ" in captured["prompt"]
+    assert "เรียบเรียงใจความใหม่ให้อ่านลื่น" in captured["prompt"]
     assert "image_post_copy_v1" == captured["task"]
     assert "images" not in captured
     assert "https://s.shopee.co.th/copy-link" not in captured["prompt"]
@@ -219,7 +219,7 @@ def test_image_copy_generation_uses_attached_image_when_details_empty(product_cl
     assert response.status_code == 200, response.text
     assert captured["images"] == [("image/png", image)]
     assert captured["task"] == "image_post_copy_v2"
-    assert "อ่านข้อความบนภาพ" in captured["prompt"]
+    assert "อ่านข้อความที่มองเห็นในภาพให้ครบ" in captured["prompt"]
     assert "ผู้ใช้ไม่ได้กรอกข้อมูลสินค้า" in captured["prompt"]
     assert "https://s.shopee.co.th/copy-link" in response.json()["caption"]
 
