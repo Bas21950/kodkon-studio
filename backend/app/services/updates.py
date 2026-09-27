@@ -57,6 +57,7 @@ def set_update_progress(
 
 
 def get_update_progress(update_id: str, current_version: str, status_path: Path | None = None) -> dict | None:
+    global _current_progress
     result = None
     if status_path is not None:
         try:
@@ -71,6 +72,10 @@ def get_update_progress(update_id: str, current_version: str, status_path: Path 
                 result = dict(_current_progress)
     if result and result.get("status") == "restarting" and result.get("version") == current_version:
         result.update(status="completed", progress=100, message="อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน")
+    if result and result.get("status") in {"completed", "failed"}:
+        with _progress_lock:
+            if _current_progress and _current_progress.get("update_id") == update_id:
+                _current_progress = dict(result)
     return result
 
 

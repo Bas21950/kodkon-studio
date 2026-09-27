@@ -133,6 +133,22 @@ def test_update_progress_survives_process_restart_and_finishes_on_new_version(tm
     assert complete["progress"] == 100
 
 
+def test_failed_installer_status_releases_in_memory_update_lock(tmp_path):
+    update_id = "f" * 32
+    status_path = tmp_path / f"kodkon-update-status-{update_id}.json"
+    updates.set_update_progress(update_id, "0.4.11", "installing", 80, "กำลังติดตั้ง", status_path)
+    assert updates.update_in_progress()
+
+    status_path.write_text(
+        json.dumps({"update_id": update_id, "version": "0.4.11", "status": "failed", "progress": 0, "message": "ติดตั้งไม่สำเร็จ"}),
+        encoding="utf-8",
+    )
+    progress = updates.get_update_progress(update_id, "0.4.8", status_path)
+
+    assert progress is not None and progress["status"] == "failed"
+    assert not updates.update_in_progress()
+
+
 def test_bad_sha256_aborts_and_removes_the_temporary_package(monkeypatch):
     update = {
         "update_available": True,
