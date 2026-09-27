@@ -1484,7 +1484,10 @@ function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpda
   const [aiUsage, setAiUsage] = useState<import('./types').AIUsage | null>(null);
   const [facebookSettings, setFacebookSettings] = useState<import('./types').FacebookSettings | null>(null);
   const [apiKey, setApiKey] = useState('');
-  const [pageId, setPageId] = useState('');
+  const [pageId, setPageId] = useState(() => {
+    try { return window.localStorage.getItem('kodkon-facebook-page-id') ?? ''; }
+    catch { return ''; }
+  });
   const [pageToken, setPageToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -1507,6 +1510,18 @@ function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpda
       .then(([ai, facebook, usage]) => { setAiSettings(ai); setFacebookSettings(facebook); setAiUsage(usage); })
       .catch((reason) => setError(reason instanceof Error ? reason.message : 'อ่านค่าตั้งค่าโปรแกรมไม่สำเร็จ'));
   }, []);
+
+  useEffect(() => {
+    if (!facebookSettings) return;
+    setPageId((current) => current || facebookSettings.pages.find((page) => page.is_active)?.id || facebookSettings.pages[0]?.id || '');
+  }, [facebookSettings]);
+
+  useEffect(() => {
+    try {
+      if (pageId.trim()) window.localStorage.setItem('kodkon-facebook-page-id', pageId.trim());
+      else window.localStorage.removeItem('kodkon-facebook-page-id');
+    } catch { /* Keep the form usable when browser storage is unavailable. */ }
+  }, [pageId]);
 
   useEffect(() => {
     if (discoveredUpdate) setUpdateInfo(discoveredUpdate);
@@ -1549,7 +1564,7 @@ function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpda
     event.preventDefault(); setFacebookBusy(true); setFacebookError(''); setFacebookMessage('');
     try {
       const page = await api.connectFacebookPage(pageId.trim(), pageToken.trim());
-      setPageToken(''); setPageId(''); setFacebookSettings(await api.facebookSettings()); setFacebookMessage(`ยืนยันและเชื่อมเพจ “${page.name}” แล้ว · token ถูกเก็บด้วย Windows DPAPI`);
+      setPageToken(''); setFacebookSettings(await api.facebookSettings()); setFacebookMessage(`ยืนยันและเชื่อมเพจ “${page.name}” แล้ว · token ถูกเก็บด้วย Windows DPAPI`);
     } catch (reason) { setFacebookError(reason instanceof Error ? reason.message : 'เชื่อม Facebook Page ไม่สำเร็จ'); }
     finally { setFacebookBusy(false); }
   };
