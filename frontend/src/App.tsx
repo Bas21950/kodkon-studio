@@ -10,6 +10,7 @@ import {
   Clapperboard,
   Clock3,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   FileVideo2,
@@ -24,6 +25,7 @@ import {
   Music2,
   Moon,
   Plus,
+  Pencil,
   Search,
   Save,
   Send,
@@ -1341,9 +1343,9 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
             <div className="publication-main">
               <div className={`publication-video ${post.media_type === 'image' ? 'publication-image' : ''}`}>{post.render_asset ? post.media_type === 'image' ? <img src={`${assetFileUrl(post.render_asset.id)}?v=${encodeURIComponent(post.updated_at)}`} alt="ภาพปกโพสต์" /> : <video src={assetFileUrl(post.render_asset.id)} controls preload="metadata" /> : post.media_type === 'image' ? <ImageIcon size={25} /> : <FileVideo2 size={25} />}{post.media_type === 'image' && post.media_assets.length > 1 && <span className="publication-image-count">{post.media_assets.length} รูป</span>}</div>
               <div className="publication-summary">
-                <div className="publication-title-row"><div><span className="panel-kicker">{post.media_type === 'image' ? 'รูปภาพ' : 'วิดีโอ'} · {post.project_title}</span><h2>{post.page_name ?? 'ยังไม่เชื่อม Facebook Page'}</h2></div></div>
+                <div className="publication-title-row"><div><span className="panel-kicker" title={post.project_title}>{post.media_type === 'image' ? 'รูปภาพ' : 'วิดีโอ'} · {post.project_title}</span><h2 title={post.page_name ?? 'ยังไม่เชื่อม Facebook Page'}>{post.page_name ?? 'ยังไม่เชื่อม Facebook Page'}</h2></div></div>
                 <p className="publication-caption-preview">{post.caption}</p>
-                {post.last_error && <div className="publication-warning">{post.last_error}</div>}
+                {post.last_error && <div className="publication-warning" title={post.last_error}>{post.last_error}</div>}
                 {post.external_post_id && <a className="publication-link" href={post.media_type === 'image' ? `https://www.facebook.com/${encodeURIComponent(post.external_post_id)}` : `https://www.facebook.com/reel/${encodeURIComponent(post.external_post_id)}`} target="_blank" rel="noreferrer"><ExternalLink size={13} />เปิด{post.media_type === 'image' ? 'โพสต์ภาพ' : 'Reel'}บน Facebook</a>}
                 {post.affiliate_url && <a className="publication-link" href={post.affiliate_url} target="_blank" rel="noreferrer"><Link2 size={13} />{post.affiliate_url}</a>}
               </div>
@@ -1351,9 +1353,9 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
               <div className={`publication-row-comment comment-${post.comment_status}`}><MessageCircle size={15} /><span>{commentStatus}</span></div>
               <div className="publication-row-date"><span>{post.published_at ? 'เผยแพร่' : post.scheduled_at ? 'กำหนดไว้' : 'สร้างเมื่อ'}</span><time dateTime={postDate}>{formatDateTime(postDate)}</time></div>
               <div className="publication-card-actions">
-                {editable && <button className="button button-primary small publication-send-button" onClick={() => confirmAndSendNow(post)} disabled={busy || !facebookReady} title={facebookReady ? 'เผยแพร่รายการที่บันทึกไว้ทันที' : 'เชื่อมต่อ Facebook Page ก่อน'}><Send size={13} />{postingId === post.id ? 'กำลังส่ง…' : 'โพสต์เลย'}</button>}
-                <button className="button button-secondary small publication-edit-button" onClick={() => setSelectedId(selectedId === post.id ? null : post.id)}>{selectedId === post.id ? 'ปิดรายละเอียด' : editable ? 'แก้ไข / ตั้งเวลา' : 'ดูรายละเอียด'}</button>
-                <button className="button button-danger small publication-delete-project-button" onClick={() => void deleteProject(post)} disabled={Boolean(deletingProjectId)} title="ลบโปรเจกต์และรายการทั้งหมดที่เกี่ยวข้อง"><Trash2 size={13} />{deletingProjectId === post.project_id ? 'กำลังลบ…' : 'ลบโปรเจกต์'}</button>
+                {editable && <button type="button" className="button button-primary small publication-send-button" onClick={() => confirmAndSendNow(post)} disabled={busy || !facebookReady} aria-label={postingId === post.id ? 'กำลังส่งโพสต์' : 'โพสต์เลย'} title={postingId === post.id ? 'กำลังส่งโพสต์' : facebookReady ? 'โพสต์รายการนี้ทันที' : 'เชื่อมต่อ Facebook Page ก่อน'}>{postingId === post.id ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}</button>}
+                <button type="button" className="button button-secondary small publication-edit-button" onClick={() => setSelectedId(selectedId === post.id ? null : post.id)} aria-label={selectedId === post.id ? 'ปิดรายละเอียด' : editable ? 'แก้ไขหรือตั้งเวลา' : 'ดูรายละเอียด'} title={selectedId === post.id ? 'ปิดรายละเอียด' : editable ? 'แก้ไขหรือตั้งเวลา' : 'ดูรายละเอียด'}>{selectedId === post.id ? <X size={15} /> : editable ? <Pencil size={15} /> : <Eye size={15} />}</button>
+                <button type="button" className="button button-danger small publication-delete-project-button" onClick={() => void deleteProject(post)} disabled={Boolean(deletingProjectId)} aria-label={deletingProjectId === post.project_id ? 'กำลังลบโปรเจกต์' : 'ลบโปรเจกต์'} title="ลบโปรเจกต์และรายการทั้งหมดที่เกี่ยวข้อง">{deletingProjectId === post.project_id ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}</button>
               </div>
             </div>
             {selectedId === post.id && <div className="publication-details">
