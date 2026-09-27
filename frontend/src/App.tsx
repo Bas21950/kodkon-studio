@@ -1133,6 +1133,9 @@ function ContentStudioPage({ startVideo, startPhoto, openQueue }: {
 }
 
 function imagePostError(reason: unknown): string {
+  if (reason instanceof TypeError && /fetch|network/i.test(reason.message)) {
+    return 'การเชื่อมต่อกับโปรแกรมหลุดชั่วคราว · ระบบลองส่งคำขอซ้ำแล้ว แต่ยังไม่ได้รับคำตอบ รูปและข้อมูลยังอยู่ครบ กดสร้างแคปชั่นอีกครั้งได้เลย';
+  }
   if (reason instanceof ApiError) {
     const message = reason.message.toLowerCase();
     if (reason.status === 429 || message.includes('โควตา') || message.includes('ขีดจำกัด') || message.includes('rate limit')) {
@@ -1206,7 +1209,14 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
     try {
       const source = productInfo.trim();
       const link = affiliateUrl.trim();
-      const result = await api.generateImagePostCopy(source, link, imageFiles);
+      let result;
+      try {
+        result = await api.generateImagePostCopy(source, link, imageFiles);
+      } catch (reason) {
+        if (!(reason instanceof TypeError) || !/fetch|network/i.test(reason.message)) throw reason;
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        result = await api.generateImagePostCopy(source, link, imageFiles);
+      }
       setCaption(result.caption); setComment(result.comment_text); setCopySource(source); setCopyAffiliateSource(link); setModelName(result.model_name);
       setNotice('ได้แคปชั่นและคอมเมนต์แล้ว · ตรวจแก้ได้ก่อนบันทึก');
     } catch (reason) { setError(imagePostError(reason)); }
