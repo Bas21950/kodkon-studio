@@ -1,4 +1,4 @@
-import type { AISettings, AIUsage, ApplicationUpdate, Capabilities, EditorRevision, FacebookPage, FacebookSettings, GeneratedCopy, ImagePostCopy, MusicTrack, OverlayRegion, Project, Publication, SubtitleSegment } from './types';
+import type { AISettings, AIUsage, ApplicationUpdate, ApplicationUpdateProgress, Capabilities, EditorRevision, FacebookPage, FacebookSettings, GeneratedCopy, ImagePostCopy, MusicTrack, OverlayRegion, Project, Publication, SubtitleSegment } from './types';
 
 export class ApiError extends Error {
   status: number;
@@ -35,7 +35,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   capabilities: () => request<Capabilities>('/api/capabilities'),
   checkApplicationUpdates: () => request<ApplicationUpdate>('/api/updates'),
-  installApplicationUpdate: () => request<{ status: string; version: string; message: string }>('/api/updates/install', { method: 'POST', body: '{}' }),
+  applicationUpdateSession: () => request<ApplicationUpdateProgress | null>('/api/updates/session'),
+  installApplicationUpdate: (version: string) => request<Omit<ApplicationUpdateProgress, 'progress'>>('/api/updates/install', { method: 'POST', body: JSON.stringify({ version }) }),
+  applicationUpdateProgress: (id: string) => request<ApplicationUpdateProgress>(`/api/updates/progress/${encodeURIComponent(id)}`),
   projects: (query = '') => request<Project[]>(`/api/projects${query ? `?q=${encodeURIComponent(query)}` : ''}`),
   project: (id: string) => request<Project>(`/api/projects/${encodeURIComponent(id)}`),
   createProject: (data: { title: string; product_name: string; product_details: string; review_evidence: string; discount_text: string; copy_style: Project['copy_style']; affiliate_url: string; source_url: string }) =>

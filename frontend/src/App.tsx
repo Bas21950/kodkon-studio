@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -39,14 +39,12 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api, assetFileUrl, ApiError, musicTrackFileUrl } from './api';
-import type { ApplicationUpdate, Asset, Capabilities, EditorRevision, GeneratedCopy, Job, MusicTrack, OverlayRegion, Project, Publication, Render, SubtitleSegment } from './types';
+import type { ApplicationUpdate, ApplicationUpdateProgress, Asset, Capabilities, EditorRevision, GeneratedCopy, Job, MusicTrack, OverlayRegion, Project, Publication, Render, SubtitleSegment } from './types';
 
 type Page = 'overview' | 'create' | 'projects' | 'image-posts' | 'posts' | 'settings';
-type AutomaticUpdate = {
-  release: ApplicationUpdate;
-  status: 'waiting' | 'installing' | 'restarting';
-  message: string;
-  retryAt: number;
+type UpdateUiProgress = Omit<ApplicationUpdateProgress, 'update_id'> & {
+  update_id: string | null;
+  started_at: number;
 };
 
 const navItems: { id: Page; label: string; icon: LucideIcon; soon?: boolean }[] = [
@@ -105,7 +103,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [automaticUpdate, setAutomaticUpdate] = useState<AutomaticUpdate | null>(null);
+  const [updateNotice, setUpdateNotice] = useState<ApplicationUpdate | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<UpdateUiProgress | null>(null);
+  const updateDialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -138,18 +138,7 @@ function App() {
       try {
         const release = await api.checkApplicationUpdates();
         if (stopped) return;
-        if (release.update_available && release.installable && release.latest_version) {
-          setAutomaticUpdate((current) => current?.status === 'installing' || current?.status === 'restarting'
-            ? current
-            : {
-                release,
-                status: 'waiting',
-                message: 'พบเวอร์ชันใหม่ · จะแจ้งรายการเปลี่ยนแปลงและติดตั้งให้อัตโนมัติเมื่อโปรแกรมพร้อม',
-                retryAt: current?.release.latest_version === release.latest_version ? current.retryAt : Date.now(),
-              });
-        } else {
-          setAutomaticUpdate((current) => current && current.status !== 'installing' && current.status !== 'restarting' ? null : current);
-        }
+        setUpdateNotice(release.update_available && release.installable && release.latest_version ? release : null);
       } catch {
         // ตรวจเงียบ ๆ เพื่อไม่รบกวนการทำงานเมื่ออินเทอร์เน็ตหรือ GitHub ใช้ไม่ได้ชั่วคราว
       } finally {
@@ -171,29 +160,96 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!automaticUpdate || automaticUpdate.status !== 'waiting' || page !== 'overview' || selectedId) return;
-    const delay = Math.max(0, automaticUpdate.retryAt - Date.now());
-    const timer = window.setTimeout(async () => {
-      const version = automaticUpdate.release.latest_version;
-      if (!version) return;
-      const retryAt = Date.now() + 5 * 60 * 1000;
-      setAutomaticUpdate((current) => current?.release.latest_version === version
-        ? { ...current, status: 'installing', message: 'กำลังดาวน์โหลด ตรวจสอบไฟล์ และติดตั้งอัปเดต', retryAt }
-        : current);
+    const stored = window.localStorage.getItem('kodkon-active-update');
+    if (stored) {
       try {
-        const result = await api.installApplicationUpdate();
-        setAutomaticUpdate((current) => current?.release.latest_version === version
-          ? { ...current, status: 'restarting', message: `${result.message} · v${result.version}`, retryAt }
+        const update = JSON.parse(stored) as { update_id: string; version: string; started_at: number };
+        if (update.update_id && update.version && Date.now() - update.started_at < 5 * 60 * 1000) {
+          setUpdateProgress({
+            update_id: update.update_id,
+            version: update.version,
+            status: 'restarting',
+            progress: 94,
+            message: 'กำลังเปิดโปรแกรมเวอร์ชันใหม่และตรวจสอบความเรียบร้อย',
+            started_at: update.started_at,
+          });
+        } else window.localStorage.removeItem('kodkon-active-update');
+      } catch { window.localStorage.removeItem('kodkon-active-update'); }
+    }
+    void api.applicationUpdateSession().then((session) => {
+      if (!session) return;
+      const startedAt = Date.now();
+      setUpdateProgress({ ...session, started_at: startedAt });
+    }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const updateId = updateProgress?.update_id;
+    if (!updateId || ['completed', 'failed'].includes(updateProgress.status)) return;
+    const pollProgress = async () => {
+      if (Date.now() - updateProgress.started_at > 5 * 60 * 1000) {
+        window.localStorage.removeItem('kodkon-active-update');
+        setUpdateProgress((current) => current?.update_id === updateProgress.update_id
+          ? { ...current, status: 'failed', progress: 0, message: 'รออัปเดตนานเกินไป · เปิดโปรแกรมใหม่แล้วลองอีกครั้ง' }
           : current);
-      } catch (reason) {
-        const message = reason instanceof Error ? reason.message : 'ติดตั้งอัปเดตไม่สำเร็จ';
-        setAutomaticUpdate((current) => current?.release.latest_version === version
-          ? { ...current, status: 'waiting', message: `${message} · จะลองใหม่อัตโนมัติ`, retryAt }
+        return;
+      }
+      try {
+        const progress = await api.applicationUpdateProgress(updateId);
+        setUpdateProgress((current) => current?.update_id === progress.update_id
+          ? { ...progress, started_at: current.started_at }
+          : current);
+      } catch {
+        setUpdateProgress((current) => current?.update_id === updateId && current.status !== 'restarting'
+          ? { ...current, status: 'restarting', progress: Math.max(current.progress, 90), message: 'กำลังปิดโปรแกรมเดิมและเปิดรุ่นใหม่' }
           : current);
       }
-    }, delay);
-    return () => window.clearTimeout(timer);
-  }, [automaticUpdate, page, selectedId]);
+    };
+    void pollProgress();
+    const timer = window.setInterval(() => void pollProgress(), 700);
+    return () => window.clearInterval(timer);
+  }, [updateProgress?.update_id, updateProgress?.status]);
+
+  useEffect(() => {
+    if (!updateProgress) return;
+    updateDialogRef.current?.focus();
+    if (updateProgress.status === 'completed') {
+      window.localStorage.removeItem('kodkon-active-update');
+      const timer = window.setTimeout(() => setUpdateProgress(null), 1800);
+      return () => window.clearTimeout(timer);
+    }
+    if (updateProgress.status === 'failed') window.localStorage.removeItem('kodkon-active-update');
+  }, [updateProgress?.status]);
+
+  const startApplicationUpdate = async (release: ApplicationUpdate) => {
+    if (!release.latest_version || !release.installable || updateProgress) return;
+    const startedAt = Date.now();
+    setUpdateProgress({
+      update_id: null,
+      version: release.latest_version,
+      status: 'checking',
+      progress: 1,
+      message: 'กำลังตรวจสอบเวอร์ชันและเตรียมดาวน์โหลด',
+      started_at: startedAt,
+    });
+    try {
+      const result = await api.installApplicationUpdate(release.latest_version);
+      const progress: UpdateUiProgress = {
+        ...result,
+        update_id: result.update_id || null,
+        status: result.update_id ? result.status : 'restarting',
+        progress: result.update_id ? 2 : 88,
+        message: result.update_id ? result.message : 'กำลังติดตั้งและเปิดโปรแกรมเวอร์ชันใหม่',
+        started_at: startedAt,
+      };
+      if (result.update_id) window.localStorage.setItem('kodkon-active-update', JSON.stringify({ update_id: result.update_id, version: result.version, started_at: startedAt }));
+      setUpdateProgress(progress);
+    } catch (reason) {
+      setUpdateProgress((current) => current?.version === release.latest_version
+        ? { ...current, status: 'failed', progress: 0, message: reason instanceof Error ? reason.message : 'เริ่มอัปเดตไม่สำเร็จ' }
+        : current);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadProjects(search), 220);
@@ -324,7 +380,10 @@ function App() {
         </header>
 
         {error && <div className="global-error" role="alert"><CircleHelp size={17} />{error}<button onClick={() => setError('')} aria-label="ปิดข้อความ"><X size={16} /></button></div>}
-        {automaticUpdate && automaticUpdate.status === 'waiting' && <div className="auto-update-banner" role="status"><Download size={16} /><span><strong>มีอัปเดต v{automaticUpdate.release.latest_version}</strong> · {automaticUpdate.message}</span></div>}
+        {updateNotice && !updateProgress && <div className="update-notice-banner" role="status">
+          <div className="update-notice-copy"><Download size={17} /><span><strong>มีอัปเดต v{updateNotice.latest_version}</strong><small>กดดูรายการเปลี่ยนแปลงหรืออัปเดตเมื่อพร้อม</small></span></div>
+          <div className="update-notice-actions"><button className="button button-secondary small" onClick={() => setPage('settings')}>รายละเอียด</button><button className="button button-primary small" onClick={() => void startApplicationUpdate(updateNotice)}>อัปเดต</button></div>
+        </div>}
 
         {selectedProject ? selectedProject.assets.some((asset) => asset.kind === 'post_image') && !selectedProject.assets.some((asset) => asset.kind === 'source_video') ? (
           <ImageProjectDetail
@@ -372,10 +431,39 @@ function App() {
         ) : page === 'posts' ? (
           <PostsPage onCreateImagePost={() => openNav('create')} />
         ) : (
-          <SettingsPage capabilities={capabilities} />
+          <SettingsPage
+            capabilities={capabilities}
+            discoveredUpdate={updateNotice}
+            updateInProgress={Boolean(updateProgress)}
+            onUpdateFound={setUpdateNotice}
+            onInstallUpdate={(release) => void startApplicationUpdate(release)}
+          />
         )}
       </main>
-      {automaticUpdate && (automaticUpdate.status === 'installing' || automaticUpdate.status === 'restarting') && <div className="auto-update-backdrop" role="presentation"><section className="auto-update-dialog" role="dialog" aria-modal="true" aria-labelledby="auto-update-title"><div className="auto-update-icon"><Download size={22} /></div><span className="panel-kicker">อัปเดตอัตโนมัติจาก GitHub</span><h2 id="auto-update-title">กำลังอัปเดตเป็น v{automaticUpdate.release.latest_version}</h2><p>{automaticUpdate.message}</p><div className="auto-update-notes-label">รายการอัปเดต</div><pre className="auto-update-notes">{automaticUpdate.release.notes || 'ไม่มีรายละเอียดเพิ่มเติม'}</pre><div className="auto-update-safety"><LoaderCircle className="spin" size={16} />ข้อมูลโปรเจกต์และไฟล์ในเครื่องจะไม่ถูกลบ โปรแกรมจะเปิดขึ้นใหม่เมื่อเสร็จ</div></section></div>}
+      {updateProgress && <div className="update-progress-backdrop" onKeyDown={(event) => { if (event.key === 'Escape' || event.key === 'Tab') event.preventDefault(); }}>
+        <section
+          ref={updateDialogRef}
+          className="update-progress-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-busy={!['completed', 'failed'].includes(updateProgress.status)}
+          aria-labelledby="update-progress-title"
+          tabIndex={-1}
+        >
+          <div className={`update-progress-icon ${updateProgress.status === 'failed' ? 'failed' : updateProgress.status === 'completed' ? 'complete' : ''}`}>
+            {updateProgress.status === 'completed' ? <CheckCircle2 size={23} /> : updateProgress.status === 'failed' ? <CircleHelp size={23} /> : <Download size={22} />}
+          </div>
+          <span className="panel-kicker">อัปเดตโปรแกรม</span>
+          <h2 id="update-progress-title">{updateProgress.status === 'completed' ? 'อัปเดตเสร็จแล้ว' : updateProgress.status === 'failed' ? 'อัปเดตไม่สำเร็จ' : `กำลังอัปเดตเป็น v${updateProgress.version}`}</h2>
+          <p className="update-progress-message">{updateProgress.message}</p>
+          <div className="update-progress-track" role="progressbar" aria-label="ความคืบหน้าการอัปเดต" aria-valuemin={0} aria-valuemax={100} aria-valuenow={updateProgress.progress}>
+            <div className={updateProgress.status === 'downloading' && !updateProgress.update_id ? 'indeterminate' : ''} style={{ width: `${updateProgress.progress}%` }} />
+          </div>
+          <div className="update-progress-meta"><strong>{updateProgress.progress}%</strong><span>{updateProgress.status === 'restarting' ? 'อย่าปิดโปรแกรม' : `เวอร์ชันใหม่ · v${updateProgress.version}`}</span></div>
+          <div className="update-progress-safety"><HardDrive size={15} />ข้อมูลโปรเจกต์และไฟล์ในเครื่องจะไม่ถูกลบ</div>
+          {updateProgress.status === 'failed' && <button className="button button-primary update-progress-dismiss" onClick={() => setUpdateProgress(null)}>รับทราบ</button>}
+        </section>
+      </div>}
     </div>
   );
 }
@@ -1385,7 +1473,13 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
   );
 }
 
-function SettingsPage({ capabilities }: { capabilities: Capabilities | null }) {
+function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpdateFound, onInstallUpdate }: {
+  capabilities: Capabilities | null;
+  discoveredUpdate: ApplicationUpdate | null;
+  updateInProgress: boolean;
+  onUpdateFound: (release: ApplicationUpdate | null) => void;
+  onInstallUpdate: (release: ApplicationUpdate) => void;
+}) {
   const [aiSettings, setAiSettings] = useState<import('./types').AISettings | null>(null);
   const [aiUsage, setAiUsage] = useState<import('./types').AIUsage | null>(null);
   const [facebookSettings, setFacebookSettings] = useState<import('./types').FacebookSettings | null>(null);
@@ -1405,7 +1499,6 @@ function SettingsPage({ capabilities }: { capabilities: Capabilities | null }) {
   const [facebookError, setFacebookError] = useState('');
   const [updateInfo, setUpdateInfo] = useState<import('./types').ApplicationUpdate | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
-  const [updateInstallBusy, setUpdateInstallBusy] = useState(false);
   const [updateError, setUpdateError] = useState('');
   const [updateMessage, setUpdateMessage] = useState('');
 
@@ -1414,6 +1507,10 @@ function SettingsPage({ capabilities }: { capabilities: Capabilities | null }) {
       .then(([ai, facebook, usage]) => { setAiSettings(ai); setFacebookSettings(facebook); setAiUsage(usage); })
       .catch((reason) => setError(reason instanceof Error ? reason.message : 'อ่านค่าตั้งค่าโปรแกรมไม่สำเร็จ'));
   }, []);
+
+  useEffect(() => {
+    if (discoveredUpdate) setUpdateInfo(discoveredUpdate);
+  }, [discoveredUpdate]);
 
   const refreshAIUsage = async () => {
     setUsageBusy(true);
@@ -1488,20 +1585,17 @@ function SettingsPage({ capabilities }: { capabilities: Capabilities | null }) {
   };
   const checkForUpdates = async () => {
     setUpdateBusy(true); setUpdateError(''); setUpdateMessage('');
-    try { setUpdateInfo(await api.checkApplicationUpdates()); }
+    try {
+      const release = await api.checkApplicationUpdates();
+      setUpdateInfo(release);
+      onUpdateFound(release.update_available && release.installable && release.latest_version ? release : null);
+    }
     catch (reason) { setUpdateError(reason instanceof Error ? reason.message : 'ตรวจสอบอัปเดตไม่สำเร็จ'); }
     finally { setUpdateBusy(false); }
   };
   const installUpdate = async () => {
     if (!updateInfo?.latest_version || !updateInfo.installable) return;
-    const confirmed = window.confirm(`อัปเดตเป็นเวอร์ชัน ${updateInfo.latest_version} เลยไหม?\n\nโปรแกรมจะปิดและเปิดใหม่อัตโนมัติ ข้อมูลใน Data จะไม่ถูกแตะต้อง และจะตรวจสอบไฟล์ด้วย SHA-256 ก่อนติดตั้ง`);
-    if (!confirmed) return;
-    setUpdateInstallBusy(true); setUpdateError(''); setUpdateMessage('');
-    try {
-      const result = await api.installApplicationUpdate();
-      setUpdateMessage(`${result.message} · v${result.version}`);
-    } catch (reason) { setUpdateError(reason instanceof Error ? reason.message : 'เริ่มติดตั้งอัปเดตไม่สำเร็จ'); }
-    finally { setUpdateInstallBusy(false); }
+    onInstallUpdate(updateInfo);
   };
 
   return (
@@ -1514,11 +1608,11 @@ function SettingsPage({ capabilities }: { capabilities: Capabilities | null }) {
         <div className="content-panel settings-card"><div className="settings-icon amber"><Settings2 size={19} /></div><div><h2>ข้อมูลโปรแกรม</h2><p>กดก่อนคิดทีหลัง Studio</p></div><strong className="storage-value">{capabilities ? `v${capabilities.version}` : '—'}</strong></div>
       </div>
       <section className="content-panel update-panel">
-        <div className="update-panel-heading"><div className="update-panel-title"><div className="settings-icon violet"><Download size={18} /></div><div><span className="panel-kicker">GitHub Releases · Public</span><h2>อัปเดตโปรแกรม</h2><p>เวอร์ชันที่ติดตั้ง: {capabilities ? `v${capabilities.version}` : 'กำลังตรวจสอบ'}</p></div></div><button className="button button-secondary" onClick={() => void checkForUpdates()} disabled={updateBusy || updateInstallBusy}>{updateBusy ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}{updateBusy ? 'กำลังตรวจสอบ…' : 'ตรวจสอบอัปเดต'}</button></div>
+        <div className="update-panel-heading"><div className="update-panel-title"><div className="settings-icon violet"><Download size={18} /></div><div><span className="panel-kicker">GitHub Releases · Public</span><h2>อัปเดตโปรแกรม</h2><p>เวอร์ชันที่ติดตั้ง: {capabilities ? `v${capabilities.version}` : 'กำลังตรวจสอบ'}</p></div></div><button className="button button-secondary" onClick={() => void checkForUpdates()} disabled={updateBusy || updateInProgress}>{updateBusy ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}{updateBusy ? 'กำลังตรวจสอบ…' : 'ตรวจสอบอัปเดต'}</button></div>
         {updateInfo && <div className={`update-result ${updateInfo.update_available ? 'available' : 'current'}`}>
           <div className="update-result-heading"><div><strong>{updateInfo.update_available ? `พบเวอร์ชันใหม่ v${updateInfo.latest_version}` : updateInfo.latest_version ? `ใช้งานเวอร์ชันล่าสุด v${updateInfo.latest_version} แล้ว` : 'ยังไม่มีเวอร์ชันเผยแพร่'}</strong>{updateInfo.published_at && <small>เผยแพร่ {formatDateTime(updateInfo.published_at)}</small>}</div><a className="text-button update-release-link" href={updateInfo.release_url} target="_blank" rel="noreferrer"><ExternalLink size={13} />ดู Release</a></div>
           <pre className="update-notes">{updateInfo.notes}</pre>
-          {updateInfo.update_available && <div className="update-install-row"><span>{updateInfo.installable ? 'ก่อนติดตั้งจะตรวจ SHA-256 และจะไม่แตะข้อมูลใน Data' : 'Release นี้ยังไม่มีแพ็กเกจ Windows ที่พร้อมติดตั้ง'}</span>{updateInfo.installable && <button className="button button-primary small" onClick={() => void installUpdate()} disabled={updateInstallBusy}>{updateInstallBusy ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}{updateInstallBusy ? 'กำลังเตรียม…' : 'ดาวน์โหลดและติดตั้ง'}</button>}</div>}
+          {updateInfo.update_available && <div className="update-install-row"><span>{updateInfo.installable ? 'ตรวจ SHA-256 ก่อนติดตั้ง · เก็บข้อมูลในเครื่องไว้ครบ' : 'Release นี้ยังไม่มีแพ็กเกจ Windows ที่พร้อมติดตั้ง'}</span>{updateInfo.installable && <button className="button button-primary small" onClick={() => void installUpdate()} disabled={updateInProgress}><Download size={14} />อัปเดตโปรแกรม</button>}</div>}
         </div>}
         {!updateInfo && !updateBusy && <p className="update-idle-note">กด “ตรวจสอบอัปเดต” เพื่อดูเวอร์ชันและรายการเปลี่ยนแปลงจาก GitHub</p>}
         {updateError && <div className="form-error update-feedback"><span>{updateError}</span><button className="text-button" onClick={() => void checkForUpdates()} disabled={updateBusy}>ลองอีกครั้ง</button></div>}

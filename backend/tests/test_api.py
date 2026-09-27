@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 import io
 import json
@@ -81,6 +82,48 @@ def test_update_install_requires_install_root(client: TestClient, monkeypatch):
     response = client.post("/api/updates/install", headers=ORIGIN, json={})
 
     assert response.status_code == 409
+
+
+def test_update_progress_confirms_restarted_version(client: TestClient, monkeypatch):
+    monkeypatch.setenv("KODKON_UPDATE_TARGET_VERSION", main_module.settings.app_version)
+
+    response = client.get(f"/api/updates/progress/{'a' * 32}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert response.json()["progress"] == 100
+
+
+def test_update_session_reports_success_after_restart(client: TestClient, monkeypatch):
+    monkeypatch.setenv("KODKON_UPDATE_TARGET_VERSION", main_module.settings.app_version)
+
+    response = client.get("/api/updates/session")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+
+
+def test_update_install_starts_background_download_without_blocking(client: TestClient, monkeypatch, tmp_path):
+    install_root = tmp_path / "install"
+    project_root = install_root / "App" / "KodKon Studio"
+    (project_root / "scripts").mkdir(parents=True)
+    (install_root / "Start Studio.vbs").write_text("", encoding="utf-8")
+    (project_root / "scripts" / "apply-update.ps1").write_text("", encoding="utf-8")
+    started = threading.Event()
+    monkeypatch.setattr(main_module, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(main_module.sys, "platform", "win32")
+    monkeypatch.setattr(main_module.shutil, "which", lambda _name: "powershell.exe")
+    monkeypatch.setattr(main_module, "update_in_progress", lambda: False)
+    monkeypatch.setattr(main_module, "set_update_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "_install_update_in_background", lambda *_args: started.set())
+    monkeypatch.setenv("KODKON_INSTALL_ROOT", str(install_root))
+
+    response = client.post("/api/updates/install", headers=ORIGIN, json={"version": "0.4.6"})
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "checking"
+    assert response.json()["version"] == "0.4.6"
+    assert started.wait(2)
 
 
 def test_project_validation_and_listing(client: TestClient):

@@ -83,6 +83,16 @@ export interface ApplicationUpdate {
   installable: boolean;
 }
 
+export type ApplicationUpdateStatus = 'checking' | 'downloading' | 'verifying' | 'installing' | 'restarting' | 'completed' | 'failed';
+
+export interface ApplicationUpdateProgress {
+  update_id: string;
+  version: string;
+  status: ApplicationUpdateStatus;
+  progress: number;
+  message: string;
+}
+
 export interface SubtitleSegment {
   stable_id: string;
   position: number;

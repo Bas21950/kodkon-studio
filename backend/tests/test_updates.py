@@ -108,11 +108,26 @@ def test_downloaded_update_must_match_published_sha256(monkeypatch):
         lambda url, **_kwargs: FakeResponse(f"{digest}  app.zip".encode()) if url.endswith(".sha256") else FakeResponse(archive),
     )
 
-    path = updates.download_verified_update(update)
+    progress = []
+    path = updates.download_verified_update(update, lambda received, total: progress.append((received, total)))
     try:
         assert path.read_bytes() == archive
+        assert progress[-1] == (len(archive), len(archive))
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_update_progress_survives_process_restart_and_finishes_on_new_version(tmp_path):
+    update_id = "a" * 32
+    status_path = tmp_path / f"kodkon-update-status-{update_id}.json"
+    updates.set_update_progress(update_id, "0.4.6", "restarting", 94, "กำลังเปิดโปรแกรมใหม่", status_path)
+
+    pending = updates.get_update_progress(update_id, "0.4.5", status_path)
+    complete = updates.get_update_progress(update_id, "0.4.6", status_path)
+
+    assert pending is not None and pending["status"] == "restarting"
+    assert complete is not None and complete["status"] == "completed"
+    assert complete["progress"] == 100
 
 
 def test_bad_sha256_aborts_and_removes_the_temporary_package(monkeypatch):

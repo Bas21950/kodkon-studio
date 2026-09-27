@@ -1217,26 +1217,36 @@ h1 { margin: 8px 0 6px; color: var(--ink-strong); font-size: clamp(25px, 2.3vw, 
 .update-install-row > span { color: var(--muted); font-size: 11px; }
 .update-feedback { margin-top: 11px; }
 .update-feedback .text-button { margin-left: auto; }
-.auto-update-banner { position: fixed; z-index: 31; top: 82px; right: 24px; display: flex; align-items: flex-start; gap: 10px; width: min(500px, calc(100vw - 36px)); padding: 13px 15px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 11px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow-md); font-size: 12px; line-height: 1.55; }
-.auto-update-banner > svg { flex: 0 0 auto; margin-top: 2px; color: var(--accent); }
-.auto-update-banner strong { color: var(--ink-strong); font-weight: 750; }
-.auto-update-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(14, 18, 32, .58); backdrop-filter: blur(5px); }
-.auto-update-dialog { width: min(540px, 100%); max-height: min(760px, calc(100vh - 44px)); display: flex; flex-direction: column; overflow: hidden; padding: 25px; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: var(--surface); box-shadow: 0 26px 90px rgba(0, 0, 0, .24); }
-.auto-update-icon { width: 44px; height: 44px; display: grid; place-items: center; margin-bottom: 15px; border-radius: 12px; color: var(--accent); background: var(--accent-soft); }
-.auto-update-dialog h2 { margin: 5px 0 7px; color: var(--ink-strong); font-size: 20px; font-weight: 780; }
-.auto-update-dialog > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
-.auto-update-notes-label { margin-top: 18px; color: var(--ink-strong); font-size: 12px; font-weight: 750; }
-.auto-update-notes { min-height: 60px; max-height: 245px; overflow: auto; margin: 8px 0 14px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--surface-raised); font: inherit; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
-.auto-update-safety { display: flex; align-items: center; gap: 9px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.5; }
-.auto-update-safety svg { flex: 0 0 auto; color: var(--accent); }
+.update-notice-banner { position: fixed; z-index: 31; top: 82px; right: 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; width: min(510px, calc(100vw - 36px)); padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line)); border-radius: 11px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow-md); }
+.update-notice-copy, .update-notice-actions { display: flex; align-items: center; gap: 10px; }
+.update-notice-copy > svg { flex: 0 0 auto; color: var(--accent); }
+.update-notice-copy strong, .update-notice-copy small { display: block; }
+.update-notice-copy strong { color: var(--ink-strong); font-size: 12px; font-weight: 750; }
+.update-notice-copy small { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.update-progress-backdrop { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(14, 18, 32, .62); backdrop-filter: blur(5px); }
+.update-progress-dialog { width: min(440px, 100%); display: flex; flex-direction: column; align-items: flex-start; padding: 28px; border: 1px solid var(--line); border-radius: 16px; outline: none; color: var(--ink); background: var(--surface); box-shadow: 0 26px 90px rgba(0, 0, 0, .28); }
+.update-progress-icon { width: 46px; height: 46px; display: grid; place-items: center; margin-bottom: 15px; border-radius: 13px; color: var(--accent); background: var(--accent-soft); }
+.update-progress-icon.complete { color: var(--success); background: color-mix(in srgb, var(--success) 12%, var(--surface)); }
+.update-progress-icon.failed { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.update-progress-dialog h2 { margin: 5px 0 7px; color: var(--ink-strong); font-size: 20px; font-weight: 780; }
+.update-progress-message { min-height: 22px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.update-progress-track { width: 100%; height: 9px; overflow: hidden; margin-top: 23px; border-radius: 99px; background: var(--surface-raised); }
+.update-progress-track > div { height: 100%; border-radius: inherit; background: var(--accent); transition: width .25s ease; }
+.update-progress-meta { width: 100%; display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.update-progress-meta strong { color: var(--ink-strong); font-size: 12px; font-weight: 760; }
+.update-progress-meta span { color: var(--muted); font-size: 11px; }
+.update-progress-safety { display: flex; align-items: center; gap: 8px; margin-top: 20px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.update-progress-safety svg { flex: 0 0 auto; color: var(--success); }
+.update-progress-dismiss { align-self: flex-end; margin-top: 18px; }
 @media (max-width: 600px) {
   .update-panel { padding: 13px; }
   .update-panel-heading { align-items: flex-start; flex-direction: column; }
   .update-panel-heading > .button { align-self: stretch; }
   .update-result-heading, .update-install-row { align-items: flex-start; flex-direction: column; }
   .update-install-row .button { align-self: flex-end; }
-  .auto-update-banner { top: 72px; right: 12px; }
-  .auto-update-dialog { padding: 20px; }
+  .update-notice-banner { top: 72px; right: 12px; align-items: flex-start; flex-direction: column; gap: 9px; }
+  .update-notice-actions { align-self: flex-end; }
+  .update-progress-dialog { padding: 22px; }
 }
 
 /* Creator-studio layout for the post queue */

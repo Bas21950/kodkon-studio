@@ -5,7 +5,9 @@ import json
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
+from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -17,10 +19,60 @@ MAX_RELEASE_JSON_BYTES = 2 * 1024 * 1024
 MAX_RELEASE_ASSET_BYTES = 512 * 1024 * 1024
 VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
 SHA256_PATTERN = re.compile(r"^([a-fA-F0-9]{64})\s+")
+_progress_lock = threading.Lock()
+_current_progress: dict | None = None
 
 
 class UpdateError(RuntimeError):
     pass
+
+
+def set_update_progress(
+    update_id: str,
+    version: str,
+    status: str,
+    progress: int,
+    message: str,
+    status_path: Path | None = None,
+) -> dict:
+    global _current_progress
+    result = {
+        "update_id": update_id,
+        "version": version,
+        "status": status,
+        "progress": max(0, min(100, int(progress))),
+        "message": message,
+    }
+    with _progress_lock:
+        _current_progress = result
+    if status_path is not None:
+        temporary = status_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(status_path)
+    return result
+
+
+def get_update_progress(update_id: str, current_version: str, status_path: Path | None = None) -> dict | None:
+    result = None
+    if status_path is not None:
+        try:
+            payload = json.loads(status_path.read_text(encoding="utf-8-sig"))
+            if payload.get("update_id") == update_id:
+                result = payload
+        except (OSError, json.JSONDecodeError):
+            pass
+    if result is None:
+        with _progress_lock:
+            if _current_progress and _current_progress.get("update_id") == update_id:
+                result = dict(_current_progress)
+    if result and result.get("status") == "restarting" and result.get("version") == current_version:
+        result.update(status="completed", progress=100, message="อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน")
+    return result
+
+
+def update_in_progress() -> bool:
+    with _progress_lock:
+        return bool(_current_progress and _current_progress.get("status") in {"checking", "downloading", "verifying", "installing", "restarting"})
 
 
 def _version_tuple(value: str) -> tuple[int, int, int]:
@@ -103,7 +155,7 @@ def get_latest_update(current_version: str, repository: str | None = None) -> di
     }
 
 
-def download_verified_update(update: dict) -> Path:
+def download_verified_update(update: dict, progress_callback: Callable[[int, int, int | None], None] | None = None) -> Path:
     package_url = update.get("package_url")
     checksum_url = update.get("checksum_url")
     if not update.get("update_available") or not update.get("installable") or not package_url or not checksum_url:
@@ -136,6 +188,8 @@ def download_verified_update(update: dict) -> Path:
                             raise UpdateError("ไฟล์อัปเดตใหญ่เกินขนาดที่กำหนด")
                         digest.update(chunk)
                         temp.write(chunk)
+                        if progress_callback is not None:
+                            progress_callback(total, int(content_length) if content_length else None)
             except Exception:
                 archive_path.unlink(missing_ok=True)
                 raise

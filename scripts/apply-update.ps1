@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$ArchivePath,
     [Parameter(Mandatory = $true)][string]$InstallRoot,
     [Parameter(Mandatory = $true)][int]$ProcessId,
-    [Parameter(Mandatory = $true)][string]$Version
+    [Parameter(Mandatory = $true)][string]$Version,
+    [string]$StatusPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,6 +11,8 @@ $install = [System.IO.Path]::GetFullPath($InstallRoot)
 $project = [System.IO.Path]::GetFullPath((Join-Path $install 'App\KodKon Studio'))
 $archive = [System.IO.Path]::GetFullPath($ArchivePath)
 $tempRoot = [System.IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') + '\'
+if (-not $StatusPath) { $StatusPath = Join-Path $env:TEMP ('kodkon-update-status-' + [guid]::NewGuid().ToString('N') + '.json') }
+$statusFile = [System.IO.Path]::GetFullPath($StatusPath)
 $work = Join-Path $env:TEMP ('kodkon-update-' + [guid]::NewGuid().ToString('N'))
 $stage = Join-Path $work 'stage'
 $backup = Join-Path $work 'backup'
@@ -19,6 +22,28 @@ $copiedPaths = [System.Collections.Generic.List[string]]::new()
 $originalPaths = [System.Collections.Generic.List[string]]::new()
 $newPaths = [System.Collections.Generic.List[string]]::new()
 $serverStopped = $false
+
+function Write-UpdateStatus([string]$Status, [int]$Progress, [string]$Message) {
+    $payload = @{
+        update_id = [System.IO.Path]::GetFileNameWithoutExtension($statusFile).Replace('kodkon-update-status-', '')
+        version = $Version
+        status = $Status
+        progress = [Math]::Max(0, [Math]::Min(100, $Progress))
+        message = $Message
+    } | ConvertTo-Json -Compress
+    $temporaryStatus = $statusFile + '.tmp'
+    Set-Content -LiteralPath $temporaryStatus -Value $payload -Encoding UTF8
+    Move-Item -LiteralPath $temporaryStatus -Destination $statusFile -Force
+}
+
+function Start-InstalledApp {
+    $launcher = Join-Path $install 'Start Studio.vbs'
+    $wscript = Join-Path $env:WINDIR 'System32\wscript.exe'
+    if (-not (Test-Path -LiteralPath $wscript -PathType Leaf)) { throw 'ไม่พบ Windows Script Host สำหรับเปิดโปรแกรมใหม่' }
+    $env:KODKON_UPDATE_STATUS_PATH = $statusFile
+    $env:KODKON_UPDATE_TARGET_VERSION = $Version
+    Start-Process -FilePath $wscript -ArgumentList @('//B', ('"{0}"' -f $launcher)) -WorkingDirectory $install -WindowStyle Hidden
+}
 
 function Show-UpdateError([string]$Message) {
     try {
@@ -38,6 +63,7 @@ function Remove-OwnedTempDirectory([string]$Path) {
 
 try {
     if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw 'ไม่พบไฟล์อัปเดตที่ดาวน์โหลดมา' }
+    if (-not $statusFile.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase) -or -not (Split-Path -Leaf $statusFile).StartsWith('kodkon-update-status-', [System.StringComparison]::OrdinalIgnoreCase) -or [System.IO.Path]::GetExtension($statusFile) -ne '.json') { throw 'ตำแหน่งไฟล์สถานะอัปเดตไม่ปลอดภัย' }
     if (-not (Test-Path -LiteralPath (Join-Path $install 'Start Studio.vbs') -PathType Leaf)) { throw 'ไม่พบ Start Studio.vbs ในโฟลเดอร์ติดตั้ง' }
     if (-not (Test-Path -LiteralPath $project -PathType Container)) { throw 'ไม่พบโฟลเดอร์โปรแกรมในตำแหน่งติดตั้ง' }
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -56,6 +82,8 @@ try {
         if ($manifest.secrets_included -ne $false -or $manifest.data_included -ne $false) { throw 'แพ็กเกจระบุว่ามีข้อมูลส่วนตัวหรือ secret · ยกเลิกการติดตั้ง' }
         if (-not $manifest.includes -or -not ($manifest.includes -contains 'App/KodKon Studio/frontend/dist/index.html')) { throw 'แพ็กเกจไม่มีไฟล์หน้าจอที่ build แล้ว' }
 
+        $entryCount = @($manifest.includes).Count
+        $entryIndex = 0
         foreach ($entryPath in $manifest.includes) {
             if (-not ($entryPath -is [string])) { throw 'รายการไฟล์ใน manifest ไม่ถูกต้อง' }
             $relative = $entryPath.Replace('/', '\')
@@ -74,6 +102,9 @@ try {
             New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
             [System.IO.Compression.ZipFileExtensions]::ExtractToFile($zipEntry, $target, $true)
             $copiedPaths.Add($relative)
+            $entryIndex++
+            $extractProgress = 10 + [int](55 * $entryIndex / [Math]::Max(1, $entryCount))
+            Write-UpdateStatus 'installing' $extractProgress "เตรียมไฟล์อัปเดต $entryIndex จาก $entryCount"
         }
     } finally { $zip.Dispose() }
 
@@ -81,6 +112,7 @@ try {
     Set-Content -LiteralPath (Join-Path $stage 'App\KodKon Studio\frontend\.portable-build') -Value 'Prebuilt frontend included in this portable package.' -Encoding utf8
     $copiedPaths.Add('App\KodKon Studio\frontend\.portable-build')
 
+    Write-UpdateStatus 'installing' 68 'เตรียมไฟล์เสร็จ · กำลังปิดโปรแกรมเดิมอย่างปลอดภัย'
     # Wait for the API process to exit before replacing files it has loaded.
     Start-Sleep -Seconds 2
     $server = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
@@ -104,9 +136,13 @@ try {
         Stop-Process -Id $ProcessId -Force
         $server.WaitForExit()
         $serverStopped = $true
-        if ($launcherProcessId) { Wait-Process -Id $launcherProcessId -Timeout 30 -ErrorAction SilentlyContinue }
+        if ($launcherProcessId) {
+            Wait-Process -Id $launcherProcessId -Timeout 30 -ErrorAction SilentlyContinue
+            if (Get-Process -Id $launcherProcessId -ErrorAction SilentlyContinue) { throw 'โปรแกรมเดิมยังปิดไม่สมบูรณ์ · ยังไม่ได้แทนที่ไฟล์' }
+        }
     }
 
+    $copyIndex = 0
     foreach ($relative in $copiedPaths) {
         $source = Join-Path $stage $relative
         $destination = [System.IO.Path]::GetFullPath((Join-Path $install $relative))
@@ -120,10 +156,25 @@ try {
         } else { $newPaths.Add($relative) }
         New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
         Copy-Item -LiteralPath $source -Destination $destination -Force
+        $copyIndex++
+        $copyProgress = 68 + [int](24 * $copyIndex / [Math]::Max(1, $copiedPaths.Count))
+        Write-UpdateStatus 'installing' $copyProgress "ติดตั้งไฟล์ $copyIndex จาก $($copiedPaths.Count)"
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $project 'frontend\dist\index.html') -PathType Leaf)) { throw 'ตรวจสอบไฟล์หน้าจอหลังอัปเดตไม่ผ่าน' }
-    Start-Process -FilePath (Join-Path $install 'Start Studio.vbs') -WorkingDirectory $install
+    Write-UpdateStatus 'restarting' 94 'ติดตั้งเสร็จ · กำลังเปิดโปรแกรมเวอร์ชันใหม่'
+    Start-Sleep -Milliseconds 800
+    Start-InstalledApp
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 120; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        try {
+            $capabilities = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/capabilities' -TimeoutSec 2
+            if ($capabilities.version -eq $Version) { $ready = $true; break }
+        } catch { }
+    }
+    if (-not $ready) { throw 'เปิดโปรแกรมเวอร์ชันใหม่ไม่สำเร็จ · ลองเปิดจากไอคอนโปรแกรมอีกครั้ง' }
+    Write-UpdateStatus 'completed' 100 'อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน'
 } catch {
     foreach ($relative in $originalPaths) {
         $source = Join-Path $backup $relative
@@ -134,9 +185,10 @@ try {
         $destination = Join-Path $install $relative
         if (Test-Path -LiteralPath $destination -PathType Leaf) { Remove-Item -LiteralPath $destination -Force }
     }
+    try { Write-UpdateStatus 'failed' 0 $_.Exception.Message } catch { }
     Show-UpdateError $_.Exception.Message
     if ($serverStopped -and (Test-Path -LiteralPath (Join-Path $install 'Start Studio.vbs') -PathType Leaf)) {
-        Start-Process -FilePath (Join-Path $install 'Start Studio.vbs') -WorkingDirectory $install
+        try { Start-InstalledApp } catch { Show-UpdateError $_.Exception.Message }
     }
 } finally {
     if (Test-Path -LiteralPath $work) { Remove-OwnedTempDirectory $work }

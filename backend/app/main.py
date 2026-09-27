@@ -10,6 +10,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -19,7 +21,7 @@ from typing import Any
 
 from alembic import command
 from alembic.config import Config
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -61,7 +63,7 @@ from app.schemas import (
 from app.services.subtitles import parse_srt, serialize_srt
 from app.services.backup import create_backup_archive, remove_backup_archive
 from app.services.cleanup import cleanup_stale_work_files
-from app.services.updates import UpdateError, download_verified_update, get_latest_update
+from app.services.updates import UpdateError, download_verified_update, get_latest_update, get_update_progress, set_update_progress, update_in_progress
 from app.services.ai_settings import ALLOWED_MODELS, get_model, set_model
 from app.services.gemini import GeminiError, generate_json
 from app.services.ai_cache import get_gemini_json
@@ -464,8 +466,74 @@ def check_application_updates():
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+def _update_status_path() -> Path | None:
+    value = os.environ.get("KODKON_UPDATE_STATUS_PATH")
+    if not value:
+        return None
+    path = Path(value).expanduser().resolve()
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    if path.parent != temp_root or not path.name.startswith("kodkon-update-status-") or path.suffix != ".json":
+        return None
+    return path
+
+
+def _install_update_in_background(requested_version: str, update_id: str, status_path: Path, install_root: Path, update_script: Path, process_id: int) -> None:
+    version = requested_version
+    archive_path: Path | None = None
+    set_update_progress(update_id, version, "checking", 2, "กำลังตรวจสอบเวอร์ชันล่าสุดบน GitHub", status_path)
+    last_progress = -1
+
+    def report_download(received: int, total: int | None) -> None:
+        nonlocal last_progress
+        progress = min(72, 4 + int(received * 68 / total)) if total else 8
+        if progress != last_progress:
+            last_progress = progress
+            message = "กำลังดาวน์โหลดไฟล์อัปเดต" if total is None else f"กำลังดาวน์โหลดไฟล์อัปเดต · {progress}%"
+            set_update_progress(update_id, version, "downloading", progress, message, status_path)
+
+    try:
+        update = get_latest_update(settings.app_version)
+        if update.get("latest_version") != requested_version or not update.get("update_available") or not update.get("installable"):
+            raise UpdateError("เวอร์ชันอัปเดตเปลี่ยนไปแล้ว · ตรวจสอบรายการใหม่ก่อนติดตั้ง")
+        set_update_progress(update_id, version, "downloading", 4, "กำลังดาวน์โหลดไฟล์อัปเดตจาก GitHub", status_path)
+        archive_path = download_verified_update(update, report_download)
+        set_update_progress(update_id, version, "verifying", 76, "ตรวจสอบ SHA-256 ผ่าน · กำลังเตรียมติดตั้ง", status_path)
+        powershell = shutil.which("powershell.exe")
+        if not powershell:
+            raise UpdateError("หา Windows PowerShell ไม่พบ · ไม่ได้ติดตั้งอัปเดต")
+        command = [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            str(update_script),
+            "-ArchivePath",
+            str(archive_path),
+            "-InstallRoot",
+            str(install_root),
+            "-ProcessId",
+            str(process_id),
+            "-Version",
+            version,
+            "-StatusPath",
+            str(status_path),
+        ]
+        set_update_progress(update_id, version, "installing", 80, "ไฟล์ปลอดภัยแล้ว · กำลังติดตั้งและเตรียมเปิดโปรแกรมใหม่", status_path)
+        subprocess.Popen(command, cwd=str(install_root), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        set_update_progress(update_id, version, "restarting", 88, "ติดตั้งไฟล์แล้ว · กำลังปิดและเปิดโปรแกรมใหม่", status_path)
+    except Exception as exc:
+        if archive_path is not None:
+            archive_path.unlink(missing_ok=True)
+        message = str(exc) if isinstance(exc, UpdateError) else "เริ่มติดตั้งอัปเดตไม่สำเร็จ · " + str(exc)
+        logger.exception("Failed to install the verified application update")
+        set_update_progress(update_id, version, "failed", 0, message, status_path)
+
+
 @app.post("/api/updates/install", status_code=202)
-def install_application_update(request: Request):
+async def install_application_update(request: Request, payload: dict = Body(...)):
     if request.headers.get("origin") not in LOCAL_ORIGINS and request.headers.get("sec-fetch-site") != "same-origin":
         raise HTTPException(status_code=403, detail="ติดตั้งอัปเดตได้จากหน้าจอของโปรแกรมที่เปิดในเครื่องเท่านั้น")
     if sys.platform != "win32":
@@ -489,40 +557,68 @@ def install_application_update(request: Request):
     if active_job or active_publication:
         raise HTTPException(status_code=409, detail="ยังมีงานตัดต่อหรือโพสต์กำลังทำงาน · รอให้งานเสร็จก่อนแล้วค่อยอัปเดต")
 
+    if update_in_progress():
+        raise HTTPException(status_code=409, detail="กำลังติดตั้งอัปเดตอยู่")
+
+    requested_version = payload.get("version")
+    if not isinstance(requested_version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", requested_version):
+        raise HTTPException(status_code=422, detail="ไม่พบหมายเลขเวอร์ชันที่ต้องการติดตั้ง")
+
     try:
-        update = get_latest_update(settings.app_version)
-        if not update.get("update_available") or not update.get("installable"):
-            raise HTTPException(status_code=409, detail="ยังไม่มีอัปเดตใหม่ที่พร้อมติดตั้ง")
-        archive_path = download_verified_update(update)
-        command = [
-            powershell,
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-File",
-            str(update_script),
-            "-ArchivePath",
-            str(archive_path),
-            "-InstallRoot",
-            str(install_root),
-            "-ProcessId",
-            str(os.getpid()),
-            "-Version",
-            str(update["latest_version"]),
-        ]
-        subprocess.Popen(command, cwd=str(install_root), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        update_id = uuid.uuid4().hex
+        status_path = Path(tempfile.gettempdir()) / f"kodkon-update-status-{update_id}.json"
+        set_update_progress(update_id, requested_version, "checking", 1, "กำลังเตรียมอัปเดต", status_path)
+        worker = threading.Thread(
+            target=_install_update_in_background,
+            args=(requested_version, update_id, status_path, install_root, update_script, os.getpid()),
+            name="kodkon-application-updater",
+            daemon=True,
+        )
+        worker.start()
     except HTTPException:
         raise
-    except UpdateError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except OSError as exc:
-        if "archive_path" in locals():
-            archive_path.unlink(missing_ok=True)
+    except (UpdateError, OSError, RuntimeError) as exc:
         logger.exception("Failed to start the verified application updater")
         raise HTTPException(status_code=500, detail="เริ่มตัวติดตั้งอัปเดตไม่สำเร็จ") from exc
-    return {"status": "installing", "version": update["latest_version"], "message": "กำลังปิดโปรแกรมและติดตั้งอัปเดต"}
+    return {"status": "checking", "update_id": update_id, "version": requested_version, "message": "กำลังตรวจสอบและเตรียมไฟล์อัปเดต"}
+
+
+@app.get("/api/updates/progress/{update_id}")
+def application_update_progress(update_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", update_id):
+        raise HTTPException(status_code=422, detail="รหัสอัปเดตไม่ถูกต้อง")
+    target_version = os.environ.get("KODKON_UPDATE_TARGET_VERSION")
+    if target_version and target_version == settings.app_version:
+        return {"update_id": update_id, "version": target_version, "status": "completed", "progress": 100, "message": "อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน"}
+    status = get_update_progress(update_id, settings.app_version, _update_status_path())
+    if status is None:
+        raise HTTPException(status_code=404, detail="ไม่พบสถานะอัปเดตนี้")
+    return status
+
+
+@app.get("/api/updates/session")
+def application_update_session():
+    status_path = _update_status_path()
+    if status_path is not None and status_path.is_file():
+        try:
+            payload = json.loads(status_path.read_text(encoding="utf-8-sig"))
+            update_id = payload.get("update_id")
+            if isinstance(update_id, str) and re.fullmatch(r"[a-f0-9]{32}", update_id):
+                progress = get_update_progress(update_id, settings.app_version, status_path)
+                if progress and progress.get("status") == "failed":
+                    return progress
+        except (OSError, json.JSONDecodeError):
+            pass
+    target_version = os.environ.get("KODKON_UPDATE_TARGET_VERSION")
+    if target_version and target_version == settings.app_version:
+        return {
+            "update_id": "0" * 32,
+            "version": target_version,
+            "status": "completed",
+            "progress": 100,
+            "message": "อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน",
+        }
+    return None
 
 
 @app.get("/api/projects", response_model=list[ProjectRead])
