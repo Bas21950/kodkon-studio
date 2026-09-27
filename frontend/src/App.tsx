@@ -1489,6 +1489,8 @@ function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpda
     catch { return ''; }
   });
   const [pageToken, setPageToken] = useState('');
+  const savedFacebookPage = facebookSettings?.pages.find((page) => page.id === pageId.trim());
+  const hasSavedFacebookToken = Boolean(savedFacebookPage?.token_configured);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [usageBusy, setUsageBusy] = useState(false);
@@ -1563,6 +1565,13 @@ function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpda
   const connectPage = async (event: FormEvent) => {
     event.preventDefault(); setFacebookBusy(true); setFacebookError(''); setFacebookMessage('');
     try {
+      if (!pageToken.trim() && hasSavedFacebookToken) {
+        const result = await api.testFacebookPage(pageId.trim());
+        setFacebookSettings(await api.facebookSettings());
+        setFacebookMessage(`ใช้ token ที่บันทึกไว้ได้แล้ว · ${result.page_name}`);
+        return;
+      }
+      if (pageToken.trim().length < 20) throw new Error('ใส่ Page Access Token อย่างน้อย 20 ตัวอักษร');
       const page = await api.connectFacebookPage(pageId.trim(), pageToken.trim());
       setPageToken(''); setFacebookSettings(await api.facebookSettings()); setFacebookMessage(`ยืนยันและเชื่อมเพจ “${page.name}” แล้ว · token ถูกเก็บด้วย Windows DPAPI`);
     } catch (reason) { setFacebookError(reason instanceof Error ? reason.message : 'เชื่อม Facebook Page ไม่สำเร็จ'); }
@@ -1670,9 +1679,9 @@ function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpda
           <div className="facebook-connect-help"><strong>วิธีเชื่อมเพจ</strong><ol><li>เปิด <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">Meta Graph API Explorer</a> และเลือกแอปที่มีสิทธิ์ของคุณ</li><li>สร้าง Page Access Token ที่มีสิทธิ์ <code>pages_show_list</code>, <code>pages_manage_posts</code>, <code>pages_read_engagement</code> และ <code>pages_manage_engagement</code></li><li>ใส่ Page ID กับ token ด้านขวา ระบบจะตรวจชื่อเพจกับ Meta ก่อนบันทึก</li></ol><p>ผู้ใช้ที่สร้าง token ต้องมีงานเพจสร้างเนื้อหา (CREATE_CONTENT) และดูแลคอมเมนต์ (MODERATE) การอนุมัติแอปและสิทธิ์จริงขึ้นกับ Meta</p></div>
           <form onSubmit={connectPage} className="facebook-connect-form">
             <label className="form-label">Facebook Page ID<input inputMode="numeric" pattern="[0-9]+" value={pageId} onChange={(event) => setPageId(event.target.value)} placeholder="เช่น 123456789012345" required /></label>
-            <label className="form-label">Page Access Token<input type="password" autoComplete="new-password" value={pageToken} onChange={(event) => setPageToken(event.target.value)} placeholder="วาง token ที่ได้จาก Meta Graph API Explorer" required /></label>
-            <button className="button button-primary small" disabled={facebookBusy || pageId.length < 5 || pageToken.length < 20}>{facebookBusy ? <LoaderCircle className="spin" size={14} /> : <Link2 size={14} />}{facebookBusy ? 'กำลังตรวจสอบกับ Meta…' : 'ตรวจและเชื่อมเพจ'}</button>
-            <small>ส่ง token ให้ Meta เพื่อตรวจ Page ID จากนั้นเก็บ token แบบเข้ารหัส DPAPI ในเครื่องนี้ โปรแกรมไม่แสดง token ซ้ำหรือเขียนลง SQLite</small>
+            <label className="form-label">Page Access Token<input type="password" autoComplete="new-password" value={pageToken} onChange={(event) => setPageToken(event.target.value)} placeholder={hasSavedFacebookToken ? 'บันทึกไว้ในเครื่องแล้ว · เว้นว่างเพื่อใช้ token เดิม' : 'วาง token ที่ได้จาก Meta Graph API Explorer'} required={!hasSavedFacebookToken} /></label>
+            <button className="button button-primary small" disabled={facebookBusy || pageId.length < 5 || (pageToken.trim() ? pageToken.trim().length < 20 : !hasSavedFacebookToken)}>{facebookBusy ? <LoaderCircle className="spin" size={14} /> : <Link2 size={14} />}{facebookBusy ? 'กำลังตรวจสอบกับ Meta…' : hasSavedFacebookToken && !pageToken.trim() ? 'ทดสอบ token ที่บันทึกไว้' : hasSavedFacebookToken ? 'บันทึก token ใหม่' : 'ตรวจและเชื่อมเพจ'}</button>
+            <small>{hasSavedFacebookToken ? 'จำ token นี้ไว้แบบเข้ารหัสในเครื่องและใช้โพสต์อัตโนมัติ · เว้นว่างไว้ได้ หาก token หมดอายุให้วาง token ใหม่เพื่อแทนที่' : 'ส่ง token ให้ Meta เพื่อตรวจ Page ID จากนั้นเก็บ token แบบเข้ารหัส DPAPI ในเครื่องนี้ โปรแกรมไม่แสดง token ซ้ำหรือเขียนลง SQLite'}</small>
           </form>
         </div>
         {facebookSettings?.pages.length ? <div className="facebook-page-list">{facebookSettings.pages.map((page) => <div className="facebook-page-row" key={page.id}><div className="facebook-page-avatar">f</div><div className="facebook-page-info"><strong>{page.name}</strong><span>Page ID {page.id} · {page.token_configured ? 'มี token ที่เข้ารหัสไว้' : 'token หายหรืออ่านไม่ได้'}</span></div>{page.is_active ? <span className="settings-status success"><span className="status-dot" />เพจที่เลือก</span> : <button className="button button-secondary small" onClick={() => void selectPage(page.id)} disabled={facebookBusy}>เลือกเพจ</button>}<button className="text-button" onClick={() => void testPage(page.id)} disabled={facebookBusy}>ทดสอบ</button><button className="text-button ai-delete-key" onClick={() => void disconnectPage(page.id)} disabled={facebookBusy}>ลบการเชื่อม</button></div>)}</div> : <div className="editor-empty-row">ยังไม่มีเพจที่เชื่อมไว้</div>}
