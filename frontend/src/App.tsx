@@ -37,9 +37,15 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api, assetFileUrl, ApiError, musicTrackFileUrl } from './api';
-import type { Asset, Capabilities, EditorRevision, GeneratedCopy, Job, MusicTrack, OverlayRegion, Project, Publication, Render, SubtitleSegment } from './types';
+import type { ApplicationUpdate, Asset, Capabilities, EditorRevision, GeneratedCopy, Job, MusicTrack, OverlayRegion, Project, Publication, Render, SubtitleSegment } from './types';
 
 type Page = 'overview' | 'create' | 'projects' | 'image-posts' | 'posts' | 'settings';
+type AutomaticUpdate = {
+  release: ApplicationUpdate;
+  status: 'waiting' | 'installing' | 'restarting';
+  message: string;
+  retryAt: number;
+};
 
 const navItems: { id: Page; label: string; icon: LucideIcon; soon?: boolean }[] = [
   { id: 'overview', label: 'ศูนย์ควบคุม', icon: LayoutDashboard },
@@ -97,6 +103,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [automaticUpdate, setAutomaticUpdate] = useState<AutomaticUpdate | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -119,6 +126,72 @@ function App() {
     void loadProjects('');
     void api.capabilities().then(setCapabilities).catch(() => setCapabilities(null));
   }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    let checking = false;
+    const checkUpdates = async () => {
+      if (stopped || checking || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        const release = await api.checkApplicationUpdates();
+        if (stopped) return;
+        if (release.update_available && release.installable && release.latest_version) {
+          setAutomaticUpdate((current) => current?.status === 'installing' || current?.status === 'restarting'
+            ? current
+            : {
+                release,
+                status: 'waiting',
+                message: 'พบเวอร์ชันใหม่ · จะแจ้งรายการเปลี่ยนแปลงและติดตั้งให้อัตโนมัติเมื่อโปรแกรมพร้อม',
+                retryAt: current?.release.latest_version === release.latest_version ? current.retryAt : Date.now(),
+              });
+        } else {
+          setAutomaticUpdate((current) => current && current.status !== 'installing' && current.status !== 'restarting' ? null : current);
+        }
+      } catch {
+        // ตรวจเงียบ ๆ เพื่อไม่รบกวนการทำงานเมื่ออินเทอร์เน็ตหรือ GitHub ใช้ไม่ได้ชั่วคราว
+      } finally {
+        checking = false;
+      }
+    };
+    const startupTimer = window.setTimeout(() => void checkUpdates(), 2500);
+    const interval = window.setInterval(() => void checkUpdates(), 30 * 60 * 1000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void checkUpdates();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      stopped = true;
+      window.clearTimeout(startupTimer);
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!automaticUpdate || automaticUpdate.status !== 'waiting' || page !== 'overview' || selectedId) return;
+    const delay = Math.max(0, automaticUpdate.retryAt - Date.now());
+    const timer = window.setTimeout(async () => {
+      const version = automaticUpdate.release.latest_version;
+      if (!version) return;
+      const retryAt = Date.now() + 5 * 60 * 1000;
+      setAutomaticUpdate((current) => current?.release.latest_version === version
+        ? { ...current, status: 'installing', message: 'กำลังดาวน์โหลด ตรวจสอบไฟล์ และติดตั้งอัปเดต', retryAt }
+        : current);
+      try {
+        const result = await api.installApplicationUpdate();
+        setAutomaticUpdate((current) => current?.release.latest_version === version
+          ? { ...current, status: 'restarting', message: `${result.message} · v${result.version}`, retryAt }
+          : current);
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : 'ติดตั้งอัปเดตไม่สำเร็จ';
+        setAutomaticUpdate((current) => current?.release.latest_version === version
+          ? { ...current, status: 'waiting', message: `${message} · จะลองใหม่อัตโนมัติ`, retryAt }
+          : current);
+      }
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [automaticUpdate, page, selectedId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadProjects(search), 220);
@@ -249,6 +322,7 @@ function App() {
         </header>
 
         {error && <div className="global-error" role="alert"><CircleHelp size={17} />{error}<button onClick={() => setError('')} aria-label="ปิดข้อความ"><X size={16} /></button></div>}
+        {automaticUpdate && automaticUpdate.status === 'waiting' && <div className="auto-update-banner" role="status"><Download size={16} /><span><strong>มีอัปเดต v{automaticUpdate.release.latest_version}</strong> · {automaticUpdate.message}</span></div>}
 
         {selectedProject ? selectedProject.assets.some((asset) => asset.kind === 'post_image') && !selectedProject.assets.some((asset) => asset.kind === 'source_video') ? (
           <ImageProjectDetail
@@ -299,6 +373,7 @@ function App() {
           <SettingsPage capabilities={capabilities} />
         )}
       </main>
+      {automaticUpdate && (automaticUpdate.status === 'installing' || automaticUpdate.status === 'restarting') && <div className="auto-update-backdrop" role="presentation"><section className="auto-update-dialog" role="dialog" aria-modal="true" aria-labelledby="auto-update-title"><div className="auto-update-icon"><Download size={22} /></div><span className="panel-kicker">อัปเดตอัตโนมัติจาก GitHub</span><h2 id="auto-update-title">กำลังอัปเดตเป็น v{automaticUpdate.release.latest_version}</h2><p>{automaticUpdate.message}</p><div className="auto-update-notes-label">รายการอัปเดต</div><pre className="auto-update-notes">{automaticUpdate.release.notes || 'ไม่มีรายละเอียดเพิ่มเติม'}</pre><div className="auto-update-safety"><LoaderCircle className="spin" size={16} />ข้อมูลโปรเจกต์และไฟล์ในเครื่องจะไม่ถูกลบ โปรแกรมจะเปิดขึ้นใหม่เมื่อเสร็จ</div></section></div>}
     </div>
   );
 }
@@ -1134,6 +1209,8 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
   const [scheduledLocal, setScheduledLocal] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [imageBusyId, setImageBusyId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [postingId, setPostingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -1211,6 +1288,29 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'ส่งคอมเมนต์เข้าคิวไม่สำเร็จ'); }
     finally { setBusy(false); }
   };
+  const replaceImage = async (post: Publication, asset: Asset, file: File) => {
+    setImageBusyId(asset.id); setError(''); setNotice('');
+    try {
+      const updated = await api.replacePublicationImage(post.id, asset.id, file);
+      setPosts((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setNotice(`เปลี่ยนภาพที่ ${post.media_assets.findIndex((item) => item.id === asset.id) + 1} แล้ว`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'เปลี่ยนภาพไม่สำเร็จ'); }
+    finally { setImageBusyId(null); }
+  };
+  const deleteProject = async (post: Publication) => {
+    const confirmed = window.confirm(
+      `ลบโปรเจกต์ “${post.project_title}” ทั้งโปรเจกต์หรือไม่?\n\nรายการโพสต์และคิวตั้งเวลาที่เกี่ยวข้อง รวมถึงไฟล์ภาพทั้งหมด จะถูกลบออกจาก Studio ส่วนโพสต์ที่เผยแพร่บน Facebook แล้วจะยังอยู่บนเพจ`,
+    );
+    if (!confirmed) return;
+    setDeletingProjectId(post.project_id); setError(''); setNotice('');
+    try {
+      await api.deleteProject(post.project_id);
+      setPosts((items) => items.filter((item) => item.project_id !== post.project_id));
+      if (posts.some((item) => item.id === selectedId && item.project_id === post.project_id)) setSelectedId(null);
+      setNotice(`ลบโปรเจกต์ “${post.project_title}” และรายการที่เกี่ยวข้องจาก Studio แล้ว`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'ลบโปรเจกต์ไม่สำเร็จ'); }
+    finally { setDeletingProjectId(null); }
+  };
 
   return (
     <section className="page-content posts-page">
@@ -1239,7 +1339,7 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
           const postDate = post.published_at ?? post.scheduled_at ?? post.created_at;
           return <article className={`publication-card ${selectedId === post.id ? 'expanded' : ''}`} key={post.id}>
             <div className="publication-main">
-              <div className={`publication-video ${post.media_type === 'image' ? 'publication-image' : ''}`}>{post.render_asset ? post.media_type === 'image' ? <img src={assetFileUrl(post.render_asset.id)} alt="ภาพปกโพสต์" /> : <video src={assetFileUrl(post.render_asset.id)} controls preload="metadata" /> : post.media_type === 'image' ? <ImageIcon size={25} /> : <FileVideo2 size={25} />}{post.media_type === 'image' && post.media_assets.length > 1 && <span className="publication-image-count">{post.media_assets.length} รูป</span>}</div>
+              <div className={`publication-video ${post.media_type === 'image' ? 'publication-image' : ''}`}>{post.render_asset ? post.media_type === 'image' ? <img src={`${assetFileUrl(post.render_asset.id)}?v=${encodeURIComponent(post.updated_at)}`} alt="ภาพปกโพสต์" /> : <video src={assetFileUrl(post.render_asset.id)} controls preload="metadata" /> : post.media_type === 'image' ? <ImageIcon size={25} /> : <FileVideo2 size={25} />}{post.media_type === 'image' && post.media_assets.length > 1 && <span className="publication-image-count">{post.media_assets.length} รูป</span>}</div>
               <div className="publication-summary">
                 <div className="publication-title-row"><div><span className="panel-kicker">{post.media_type === 'image' ? 'รูปภาพ' : 'วิดีโอ'} · {post.project_title}</span><h2>{post.page_name ?? 'ยังไม่เชื่อม Facebook Page'}</h2></div></div>
                 <p className="publication-caption-preview">{post.caption}</p>
@@ -1253,10 +1353,18 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
               <div className="publication-card-actions">
                 {editable && <button className="button button-primary small publication-send-button" onClick={() => confirmAndSendNow(post)} disabled={busy || !facebookReady} title={facebookReady ? 'เผยแพร่รายการที่บันทึกไว้ทันที' : 'เชื่อมต่อ Facebook Page ก่อน'}><Send size={13} />{postingId === post.id ? 'กำลังส่ง…' : 'โพสต์เลย'}</button>}
                 <button className="button button-secondary small publication-edit-button" onClick={() => setSelectedId(selectedId === post.id ? null : post.id)}>{selectedId === post.id ? 'ปิดรายละเอียด' : editable ? 'แก้ไข / ตั้งเวลา' : 'ดูรายละเอียด'}</button>
+                <button className="button button-danger small publication-delete-project-button" onClick={() => void deleteProject(post)} disabled={Boolean(deletingProjectId)} title="ลบโปรเจกต์และรายการทั้งหมดที่เกี่ยวข้อง"><Trash2 size={13} />{deletingProjectId === post.project_id ? 'กำลังลบ…' : 'ลบโปรเจกต์'}</button>
               </div>
             </div>
             {selectedId === post.id && <div className="publication-details">
               {editable ? <>
+                {post.media_type === 'image' && post.media_assets.length > 0 && <div className="publication-image-editor" aria-label="ภาพในโพสต์">
+                  {post.media_assets.map((asset, index) => <label className={`publication-edit-image ${imageBusyId === asset.id ? 'is-busy' : ''}`} key={asset.id}>
+                    <img src={`${assetFileUrl(asset.id)}?v=${encodeURIComponent(post.updated_at)}`} alt={`ภาพที่ ${index + 1}: ${asset.original_name}`} />
+                    <span className="publication-edit-image-action"><ImageIcon size={14} />{imageBusyId === asset.id ? 'กำลังเปลี่ยน…' : 'เปลี่ยนภาพ'}</span>
+                    <input type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" aria-label={`เปลี่ยนภาพที่ ${index + 1}`} disabled={imageBusyId === asset.id} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void replaceImage(post, asset, file); }} />
+                  </label>)}
+                </div>}
                 <label className="form-label">แคปชั่น<textarea rows={4} value={caption} onChange={(event) => setCaption(event.target.value)} /></label>
                 <label className="form-label">คอมเมนต์ที่จะลงหลังโพสต์<textarea rows={3} value={comment} onChange={(event) => setComment(event.target.value)} /></label>
                 <label className="form-label schedule-input">ตั้งเวลาโพสต์ <span className="optional-label">เว้นว่างเพื่อเก็บเป็นดราฟต์</span><input type="datetime-local" value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></label>

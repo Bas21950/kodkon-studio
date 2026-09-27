@@ -141,6 +141,41 @@ def test_image_post_keeps_multiple_images_product_info_and_affiliate_links(produ
     assert publication["media_type"] == "image"
 
 
+def test_editing_image_post_replaces_the_selected_original_file(product_client):
+    created = product_client.post(
+        "/api/image-posts",
+        headers=ORIGIN,
+        files=[
+            ("image_files", ("first.jpg", b"\xff\xd8\xfffirst", "image/jpeg")),
+            ("image_files", ("second.png", b"\x89PNG\r\n\x1a\nsecond", "image/png")),
+        ],
+        data={"caption": "โพสต์ภาพ", "affiliate_url": "https://s.shopee.co.th/example"},
+    )
+    assert created.status_code == 201, created.text
+    publication = created.json()
+    second_image = publication["media_assets"][1]
+    with main_module.SessionLocal() as db:
+        old_relative_path = db.get(main_module.Asset, second_image["id"]).relative_path
+    replacement_bytes = b"\xff\xd8\xffreplacement-image"
+
+    response = product_client.put(
+        f"/api/publications/{publication['id']}/images/{second_image['id']}",
+        headers=ORIGIN,
+        files={"image_file": ("replacement.jpg", replacement_bytes, "image/jpeg")},
+    )
+
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert [asset["id"] for asset in updated["media_assets"]] == [asset["id"] for asset in publication["media_assets"]]
+    assert updated["media_assets"][1]["original_name"] == "replacement.jpg"
+    assert updated["render_asset"]["id"] == publication["render_asset"]["id"]
+    assert updated["events"][-1]["event_type"] == "image_replaced"
+    downloaded = product_client.get(f"/api/assets/{second_image['id']}/file")
+    assert downloaded.status_code == 200
+    assert downloaded.content == replacement_bytes
+    assert not main_module.resolve_media_path(old_relative_path).exists()
+
+
 def test_image_copy_generation_sends_only_product_text_to_ai(product_client, monkeypatch):
     captured = {}
 

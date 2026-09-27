@@ -14,6 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from typing import Any
 
 from alembic import command
@@ -1389,6 +1390,85 @@ async def create_image_publication(
         for path in saved_paths:
             path.unlink(missing_ok=True)
         raise
+
+
+@app.put("/api/publications/{publication_id}/images/{asset_id}", response_model=PublicationRead)
+async def replace_publication_image(
+    publication_id: str,
+    asset_id: str,
+    image_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    publication = db.get(Publication, publication_id)
+    if publication is None:
+        raise HTTPException(status_code=404, detail="ไม่พบรายการโพสต์นี้")
+    if publication.media_type != "image":
+        raise HTTPException(status_code=409, detail="รายการนี้ไม่ใช่โพสต์ภาพ")
+    if publication.status not in {"draft", "scheduled", "needs_attention"} or publication.remote_stage or publication.remote_video_id:
+        raise HTTPException(status_code=409, detail="รายการนี้เริ่มส่งไป Facebook แล้ว จึงแก้ภาพไม่ได้")
+
+    asset_ids = publication_media_asset_ids(publication)
+    if asset_id not in asset_ids:
+        raise HTTPException(status_code=404, detail="ไม่พบภาพนี้ในโพสต์")
+    asset = db.get(Asset, asset_id)
+    if asset is None or asset.project_id != publication.project_id or asset.kind != "post_image" or asset.state != "ready":
+        raise HTTPException(status_code=404, detail="ไม่พบไฟล์ภาพต้นฉบับ")
+
+    image_bytes, _mime_type, suffix = await _read_image_upload(image_file)
+    assets = [db.get(Asset, current_id) for current_id in asset_ids]
+    if any(item is None for item in assets):
+        raise HTTPException(status_code=409, detail="ไฟล์ภาพบางรูปไม่พร้อมแก้ไข")
+    safe_name = PurePosixPath((image_file.filename or "ภาพสินค้า").replace("\\", "/")).name.strip() or "ภาพสินค้า"
+    candidate = SimpleNamespace(original_name=f"{Path(safe_name).stem[:245]}{suffix}", byte_size=len(image_bytes))
+    preflight_error = photo_set_preflight([candidate if item.id == asset.id else item for item in assets])
+    if preflight_error:
+        raise HTTPException(status_code=422, detail=preflight_error)
+
+    try:
+        old_path = resolve_media_path(asset.relative_path)
+        project_dir = resolve_media_path(f"projects/{publication.project_id}/.project-scope").parent
+        if old_path.parent != project_dir:
+            raise HTTPException(status_code=400, detail="ตำแหน่งไฟล์ภาพไม่ปลอดภัย จึงยกเลิกการแก้ไข")
+        filename = f"{asset.id}-{uuid.uuid4().hex[:10]}{suffix}"
+        relative_path = f"projects/{publication.project_id}/{filename}"
+        destination = resolve_media_path(relative_path)
+        temp_path = destination.with_name(f".{destination.name}.upload")
+    except UnsafeStoragePath as exc:
+        raise HTTPException(status_code=400, detail="ตำแหน่งไฟล์ภาพไม่ปลอดภัย จึงยกเลิกการแก้ไข") from exc
+
+    committed = False
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temp_path.write_bytes(image_bytes)
+        os.replace(temp_path, destination)
+        asset.relative_path = relative_path
+        asset.original_name = candidate.original_name
+        asset.byte_size = len(image_bytes)
+        asset.sha256 = hashlib.sha256(image_bytes).hexdigest()
+        publication.updated_at = datetime.now(timezone.utc)
+        image_number = asset_ids.index(asset_id) + 1
+        db.add(PublicationEvent(
+            publication_id=publication.id,
+            event_type="image_replaced",
+            message=f"เปลี่ยนภาพโพสต์รูปที่ {image_number}",
+            created_at=publication.updated_at,
+        ))
+        db.commit()
+        committed = True
+    except Exception:
+        db.rollback()
+        temp_path.unlink(missing_ok=True)
+        if destination.exists():
+            destination.unlink(missing_ok=True)
+        raise
+
+    if committed and old_path != destination:
+        try:
+            old_path.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("Could not remove replaced image file for asset %s", asset_id)
+    db.refresh(publication)
+    return publication_payload(publication, db)
 
 
 @app.patch("/api/publications/{publication_id}", response_model=PublicationRead)

@@ -89,6 +89,14 @@ export const api = {
     return request<Publication>('/api/image-posts', { method: 'POST', body });
   },
   publications: (status = '') => request<Publication[]>(`/api/publications${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  replacePublicationImage: (publicationId: string, assetId: string, file: File) => {
+    const body = new FormData();
+    body.append('image_file', file, file.name);
+    return request<Publication>(
+      `/api/publications/${encodeURIComponent(publicationId)}/images/${encodeURIComponent(assetId)}`,
+      { method: 'PUT', body },
+    );
+  },
   updatePublication: (id: string, data: { caption: string; comment_text: string; scheduled_at: string | null }) =>
     request<Publication>(`/api/publications/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   cancelPublication: (id: string) => request<Publication>(`/api/publications/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
