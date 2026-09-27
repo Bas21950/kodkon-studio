@@ -179,13 +179,31 @@ def read_ai_settings():
 
 
 @app.post("/api/image-posts/generate-copy")
-def generate_image_post_copy(payload: ImagePostCopyGenerate):
-    product_details = payload.product_details.strip()
+async def generate_image_post_copy(
+    product_details: str = Form(default=""),
+    affiliate_url: str = Form(...),
+    image_files: list[UploadFile] = File(default=[]),
+):
+    product_details = product_details.strip()
+    if len(product_details) > 24000:
+        raise HTTPException(status_code=422, detail="ข้อมูลสินค้ายาวเกิน 24,000 ตัวอักษร")
+    affiliate_url = ImagePostCopyGenerate(product_details=product_details, affiliate_url=affiliate_url).affiliate_url
+    if not product_details and not image_files:
+        raise HTTPException(status_code=422, detail="กรุณาแนบภาพอย่างน้อย 1 รูป หรือใส่ข้อมูลสินค้า")
+    if len(image_files) > MAX_POST_IMAGES:
+        raise HTTPException(status_code=422, detail="แนบภาพได้สูงสุด 6 รูป")
+    ai_images: list[tuple[str, bytes]] = []
+    if not product_details:
+        image_payloads = [await _read_image_upload(upload) for upload in image_files]
+        if sum(len(raw) for raw, _, _ in image_payloads) > 36 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="ภาพทั้งหมดรวมกันต้องไม่เกิน 36 MB")
+        ai_images = [(mime_type, raw) for raw, mime_type, _ in image_payloads]
     try:
         result, model = get_gemini_json(
-            task="image_post_copy_v1",
-            prompt=image_post_copy_prompt(product_details),
+            task="image_post_copy_v2" if ai_images else "image_post_copy_v1",
+            prompt=image_post_copy_prompt(product_details, from_images=bool(ai_images)),
             schema=IMAGE_POST_COPY_SCHEMA,
+            **({"images": ai_images} if ai_images else {}),
             max_output_tokens=2500,
         )
     except GeminiError as exc:
@@ -209,8 +227,8 @@ def generate_image_post_copy(payload: ImagePostCopyGenerate):
         caption = f"😏 {caption}"
     if not any("\U0001f300" <= char <= "\U0001faff" or "\u2600" <= char <= "\u27bf" for char in comment_text):
         comment_text = f"🛒 {comment_text}"
-    caption = append_affiliate_link(caption, payload.affiliate_url, default_label="🛒 พิกัดสินค้า กดดูตรงนี้")
-    comment_text = append_affiliate_link(comment_text, payload.affiliate_url, default_label="👉 กดสั่ง/ดูรายละเอียด")
+    caption = append_affiliate_link(caption, affiliate_url, default_label="🛒 พิกัดสินค้า กดดูตรงนี้")
+    comment_text = append_affiliate_link(comment_text, affiliate_url, default_label="👉 กดสั่ง/ดูรายละเอียด")
     return {"caption": caption, "comment_text": comment_text, "model_name": model}
 
 

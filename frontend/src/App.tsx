@@ -1206,7 +1206,7 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
     try {
       const source = productInfo.trim();
       const link = affiliateUrl.trim();
-      const result = await api.generateImagePostCopy(source, link);
+      const result = await api.generateImagePostCopy(source, link, imageFiles);
       setCaption(result.caption); setComment(result.comment_text); setCopySource(source); setCopyAffiliateSource(link); setModelName(result.model_name);
       setNotice('ได้แคปชั่นและคอมเมนต์แล้ว · ตรวจแก้ได้ก่อนบันทึก');
     } catch (reason) { setError(imagePostError(reason)); }
@@ -1236,12 +1236,12 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
           </div>}
           <label className="form-label image-details-field">ข้อมูลสินค้า<textarea value={productInfo} onChange={(event) => setProductInfo(event.target.value)} rows={7} maxLength={24000} placeholder="ใส่ชื่อสินค้า จุดเด่น สเปกสำคัญ ราคา/โปร และข้อมูลรีวิวที่อยากให้ AI ใช้" /></label>
           <label className="form-label">ลิงก์ Affiliate <span className="optional-label">จำเป็นสำหรับพิกัดสั่งซื้อ</span><input required value={affiliateUrl} onChange={(event) => { const value = event.target.value; setAffiliateUrl(value); setCaption((current) => syncAffiliateLink(current, value, '🛒 พิกัดสินค้า กดดูตรงนี้')); setComment((current) => syncAffiliateLink(current, value, '👉 กดสั่ง/ดูรายละเอียด')); }} placeholder="วางลิงก์สินค้า Affiliate เช่น https://s.shopee.co.th/..." /></label>
-          <p className="product-input-hint">AI ใช้ข้อมูลสินค้าเขียนใหม่ · ระบบแทรกลิงก์จริงท้ายแคปชันและคอมเมนต์ · รูปไม่ส่งให้ AI</p>
+          <p className="product-input-hint">ถ้าไม่ใส่ข้อมูลสินค้า AI จะอ่านจากภาพที่แนบ · ระบบแทรกลิงก์จริงท้ายแคปชันและคอมเมนต์</p>
         </div>
 
         <div className="image-copy-panel content-panel">
           <div className="panel-heading compact"><div><span className="panel-kicker">ขั้นตอนที่ 2</span><h2>แคปชั่นและคอมเมนต์</h2></div><span className="optional-label">แก้ได้ก่อนบันทึก</span></div>
-          <button className="button button-secondary image-ai-button" onClick={() => void generateCopy()} disabled={!productInfo.trim() || !affiliateUrl.trim() || generating || saving}><Sparkles size={16} />{generating ? 'กำลังเขียนโพสต์…' : 'ให้ AI เขียนแคปชั่น + คอมเมนต์'}</button>
+          <button className="button button-secondary image-ai-button" onClick={() => void generateCopy()} disabled={(!productInfo.trim() && !imageFiles.length) || !affiliateUrl.trim() || generating || saving}><Sparkles size={16} />{generating ? 'กำลังเขียนโพสต์…' : 'ให้ AI เขียนแคปชั่น + คอมเมนต์'}</button>
           <div className={`image-link-target ${affiliateUrl.trim() ? 'ready' : 'missing'}`}><Link2 size={15} /><div><strong>{affiliateUrl.trim() ? 'พิกัดสั่งซื้อที่จะใส่ในโพสต์และคอมเมนต์' : 'ยังไม่มีลิงก์สินค้า'}</strong><span>{affiliateUrl.trim() || 'วางลิงก์ Affiliate ในช่องฝั่งซ้ายก่อนสร้างข้อความ'}</span></div></div>
           {modelName && <p className="product-input-hint">สร้างด้วย {modelName}{copySource !== productInfo.trim() || copyAffiliateSource !== affiliateUrl.trim() ? ' · ข้อมูลสินค้าหรือลิงก์เปลี่ยนแล้ว กดสร้างใหม่เพื่ออัปเดตข้อความ' : ''}</p>}
           <label className="form-label long-caption-field">แคปชั่น<textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={8} placeholder="แคปชั่นกวน ๆ ขายตรงจากข้อมูลสินค้าจะอยู่ตรงนี้" /></label>

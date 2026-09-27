@@ -188,7 +188,7 @@ def test_image_copy_generation_sends_only_product_text_to_ai(product_client, mon
     response = product_client.post(
         "/api/image-posts/generate-copy",
         headers=ORIGIN,
-        json={"product_details": product_info, "affiliate_url": "https://s.shopee.co.th/copy-link"},
+        data={"product_details": product_info, "affiliate_url": "https://s.shopee.co.th/copy-link"},
     )
     assert response.status_code == 200, response.text
     assert product_info in captured["prompt"]
@@ -202,3 +202,32 @@ def test_image_copy_generation_sends_only_product_text_to_ai(product_client, mon
         "comment_text": "🛒 ชอบแล้วกดไปส่องสีที่ใช่เลย\n\n👉 กดสั่ง/ดูรายละเอียด: https://s.shopee.co.th/copy-link",
         "model_name": "gemini-test",
     }
+
+
+def test_image_copy_generation_uses_attached_image_when_details_empty(product_client, monkeypatch):
+    captured = {}
+
+    def fake_generate_json(**kwargs):
+        captured.update(kwargs)
+        return ({"caption": "กล่องเก็บของมีล้อ เลื่อนมาจัดโต๊ะให้โล่ง", "comment_text": "ไปดูพิกัดกัน"}, "gemini-test")
+
+    monkeypatch.setattr(main_module, "get_gemini_json", fake_generate_json)
+    image = b"\x89PNG\r\n\x1a\n" + b"sample-image"
+    response = product_client.post(
+        "/api/image-posts/generate-copy", headers=ORIGIN,
+        data={"product_details": "", "affiliate_url": "https://s.shopee.co.th/copy-link"},
+        files=[("image_files", ("product.png", image, "image/png"))],
+    )
+    assert response.status_code == 200, response.text
+    assert captured["images"] == [("image/png", image)]
+    assert captured["task"] == "image_post_copy_v2"
+    assert "อ่านภาพสินค้าที่แนบมาทุกรูป" in captured["prompt"]
+    assert "https://s.shopee.co.th/copy-link" in response.json()["caption"]
+
+
+def test_image_copy_generation_needs_details_or_image(product_client):
+    response = product_client.post(
+        "/api/image-posts/generate-copy", headers=ORIGIN,
+        data={"product_details": "", "affiliate_url": "https://s.shopee.co.th/copy-link"},
+    )
+    assert response.status_code == 422

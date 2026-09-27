@@ -76,7 +76,7 @@ class ProjectPatch(BaseModel):
 
 
 class ImagePostCopyGenerate(BaseModel):
-    product_details: str = Field(min_length=1, max_length=24000)
+    product_details: str = Field(default="", max_length=24000)
     affiliate_url: str = Field(min_length=1, max_length=2048)
 
     @field_validator("product_details", mode="before")
