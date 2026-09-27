@@ -45,29 +45,27 @@ def test_legacy_product_fields_are_combined_into_one_ai_reference():
     assert "source_url" not in info
 
 
-def test_caption_prompt_requires_detailed_copy_grounded_in_the_single_info_field():
+def test_caption_prompt_requires_natural_copy_grounded_in_the_single_info_field():
     product_info = "เสื้อคอตตอน สีดำ/ขาว ไซซ์ S–XL รอบอก 96–112 ซม. รีวิว 4.8/5"
     prompt = product_copy_prompt({"product_info": product_info}, "caption")
     assert product_info in prompt
     assert "ยึดประเภทสินค้าและข้อเท็จจริงตามนั้น" in prompt
-    assert "8–14 บรรทัด" in prompt
+    assert "ไม่ต้องกวน ไม่เล่นมุก ไม่เร่งหรือสั่งให้ซื้อ" in prompt
+    assert "ชื่อสินค้า วิธีใช้หรือประโยชน์" in prompt
+    assert "ยาวพอดีกับข้อมูล" in prompt
     assert "วัสดุ ขนาด วิธีใช้" in prompt
     assert "ห้ามใส่ URL ใน caption" in prompt
 
 
-def test_image_caption_prompt_paraphrases_key_facts_with_hard_sell_thai_tone():
+def test_image_caption_prompt_uses_natural_thai_and_covers_key_facts():
     product_info = "เสื้อยืดผ้าคอตตอน ไซซ์ S–XL มีดำและขาว ลด 20% โอนก่อนเท่านั้น ส่งช้า"
     prompt = image_post_copy_prompt(product_info)
     assert product_info in prompt
-    assert "กวน แสบ มั่นใจ แหวกแนว" in prompt
-    assert "ปิดการขายแบบสั่งตรง ๆ ไม่อ้อมค้อม" in prompt
-    assert "ต้องมีมุกหรือประโยคแซว" in prompt
-    assert "ห้ามทำให้โทนอ่อนลงเป็นรีวิวเรียบ ๆ" in prompt
-    assert "ห้ามใช้คอมเมนต์กลาง ๆ" in prompt
-    assert "3–5 ตัวกระจายตามบรรทัด" in prompt
-    assert "อิโมจิ 1–2 ตัว" in prompt
-    assert "ห้ามมีอักษรเกาหลี ญี่ปุ่น" in prompt
-    assert "ความยาวเนื้อหาอย่างน้อยประมาณ 220 ตัวอักษร" in prompt
+    assert "ไม่ต้องกวน ไม่เล่นมุก ไม่ฮาร์ดเซล" in prompt
+    assert "ชื่อหรือประเภทสินค้า ใช้ทำอะไร" in prompt
+    assert "เหมาะกับใครหรือสถานการณ์ไหน" in prompt
+    assert "Affiliate link จริงต่อท้าย" in prompt
+    assert "กวน แสบ มั่นใจ แหวกแนว" not in prompt
     assert "ห้ามคัดประโยคหรือย่อหน้าจากต้นฉบับมาวางตรง ๆ" in prompt
     assert "เลือกเฉพาะ 2–4 จุด" in prompt
     assert "ตัดแฮชแท็กที่แปะมาเป็นพรืด" in prompt
@@ -192,7 +190,7 @@ def test_image_copy_generation_sends_only_product_text_to_ai(product_client, mon
     )
     assert response.status_code == 200, response.text
     assert product_info in captured["prompt"]
-    assert "ต้องมีมุกหรือประโยคแซว" in captured["prompt"]
+    assert "ไม่ต้องกวน ไม่เล่นมุก ไม่ฮาร์ดเซล" in captured["prompt"]
     assert "ห้ามคัดประโยคหรือย่อหน้าจากต้นฉบับมาวางตรง ๆ" in captured["prompt"]
     assert "image_post_copy_v1" == captured["task"]
     assert "images" not in captured
@@ -221,7 +219,8 @@ def test_image_copy_generation_uses_attached_image_when_details_empty(product_cl
     assert response.status_code == 200, response.text
     assert captured["images"] == [("image/png", image)]
     assert captured["task"] == "image_post_copy_v2"
-    assert "อ่านภาพสินค้าที่แนบมาทุกรูป" in captured["prompt"]
+    assert "อ่านข้อความบนภาพ" in captured["prompt"]
+    assert "ผู้ใช้ไม่ได้กรอกข้อมูลสินค้า" in captured["prompt"]
     assert "https://s.shopee.co.th/copy-link" in response.json()["caption"]
 
 
