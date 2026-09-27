@@ -107,7 +107,10 @@ try {
 
     if (-not (Test-Path -LiteralPath $venvPythonW)) { throw 'Could not find pythonw.exe in the application environment.' }
     Write-StartupLog 'Starting native desktop window.'
-    $desktopProcess = Start-Process -FilePath $venvPythonW -ArgumentList @('-m', 'app.desktop') -WorkingDirectory $backendRoot -PassThru -Wait
+    # -Wait follows descendants too; the updater is launched by the API
+    # descendant and would keep this launcher alive during an update.
+    $desktopProcess = Start-Process -FilePath $venvPythonW -ArgumentList @('-m', 'app.desktop') -WorkingDirectory $backendRoot -PassThru
+    Wait-Process -Id $desktopProcess.Id
     if ($desktopProcess.ExitCode -ne 0) { Write-StartupLog "Desktop process exited with code $($desktopProcess.ExitCode)." }
 } catch {
     Write-StartupLog ("ERROR: " + $_.Exception.Message)

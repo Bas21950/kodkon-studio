@@ -170,14 +170,21 @@ try {
             }
         }
         if ($launcherProcessId) {
-            Wait-Process -Id $launcherProcessId -Timeout 10 -ErrorAction SilentlyContinue
+            # Previous launcher versions wait for every descendant, including
+            # this updater. Do not wait on it before terminating it.
             $launcherInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $launcherProcessId" -ErrorAction SilentlyContinue
             if ($launcherInfo) {
                 if ($launcherInfo.Name -notmatch '^powershell(\.exe)?$' -or $launcherInfo.CommandLine -notlike '*start-desktop.ps1*') {
                     throw 'ยืนยันตัวเปิดโปรแกรมเดิมไม่ได้ · ยังไม่ได้แทนที่ไฟล์'
                 }
                 Stop-Process -Id $launcherProcessId -Force
-                Wait-Process -Id $launcherProcessId -Timeout 10 -ErrorAction SilentlyContinue
+                for ($attempt = 0; $attempt -lt 20 -and (Get-Process -Id $launcherProcessId -ErrorAction SilentlyContinue); $attempt++) {
+                    Start-Sleep -Milliseconds 250
+                }
+                if (Get-Process -Id $launcherProcessId -ErrorAction SilentlyContinue) {
+                    & (Join-Path $env:WINDIR 'System32\taskkill.exe') /PID $launcherProcessId /F | Out-Null
+                    Start-Sleep -Seconds 1
+                }
                 if (Get-Process -Id $launcherProcessId -ErrorAction SilentlyContinue) { throw 'ตัวเปิดโปรแกรมเดิมยังปิดไม่สมบูรณ์ · ยังไม่ได้แทนที่ไฟล์' }
             }
         }
