@@ -141,10 +141,14 @@ try {
             throw 'ยืนยันโปรเซสของโปรแกรมไม่ได้ · ไม่ได้ปิดโปรเซสใด'
         }
         $launcherProcessId = 0
+        $desktopProcessId = 0
         $ancestorId = [int]$serverInfo.ParentProcessId
         for ($depth = 0; $depth -lt 8 -and $ancestorId -gt 0; $depth++) {
             $ancestor = Get-CimInstance Win32_Process -Filter "ProcessId = $ancestorId" -ErrorAction SilentlyContinue
             if (-not $ancestor) { break }
+            if ($ancestor.Name -in @('pythonw.exe', 'python.exe') -and $ancestor.CommandLine -like "*$expectedPython*" -and $ancestor.CommandLine -match '(?i)(?:^|\s)-m\s+app\.desktop(?:\s|$)') {
+                $desktopProcessId = [int]$ancestor.ProcessId
+            }
             if ($ancestor.Name -match '^powershell(\.exe)?$' -and $ancestor.CommandLine -like "*start-desktop.ps1*") {
                 $launcherProcessId = [int]$ancestor.ProcessId
                 break
@@ -154,9 +158,28 @@ try {
         Stop-Process -Id $ProcessId -Force
         $server.WaitForExit()
         $serverStopped = $true
+        if ($desktopProcessId) {
+            $desktopInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $desktopProcessId" -ErrorAction SilentlyContinue
+            if ($desktopInfo) {
+                if ($desktopInfo.Name -notin @('pythonw.exe', 'python.exe') -or $desktopInfo.CommandLine -notlike "*$expectedPython*" -or $desktopInfo.CommandLine -notmatch '(?i)(?:^|\s)-m\s+app\.desktop(?:\s|$)') {
+                    throw 'ยืนยันหน้าต่างโปรแกรมเดิมไม่ได้ · ยังไม่ได้แทนที่ไฟล์'
+                }
+                Stop-Process -Id $desktopProcessId -Force
+                Wait-Process -Id $desktopProcessId -Timeout 10 -ErrorAction SilentlyContinue
+                if (Get-Process -Id $desktopProcessId -ErrorAction SilentlyContinue) { throw 'หน้าต่างโปรแกรมเดิมยังปิดไม่สมบูรณ์ · ยังไม่ได้แทนที่ไฟล์' }
+            }
+        }
         if ($launcherProcessId) {
-            Wait-Process -Id $launcherProcessId -Timeout 30 -ErrorAction SilentlyContinue
-            if (Get-Process -Id $launcherProcessId -ErrorAction SilentlyContinue) { throw 'โปรแกรมเดิมยังปิดไม่สมบูรณ์ · ยังไม่ได้แทนที่ไฟล์' }
+            Wait-Process -Id $launcherProcessId -Timeout 10 -ErrorAction SilentlyContinue
+            $launcherInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $launcherProcessId" -ErrorAction SilentlyContinue
+            if ($launcherInfo) {
+                if ($launcherInfo.Name -notmatch '^powershell(\.exe)?$' -or $launcherInfo.CommandLine -notlike '*start-desktop.ps1*') {
+                    throw 'ยืนยันตัวเปิดโปรแกรมเดิมไม่ได้ · ยังไม่ได้แทนที่ไฟล์'
+                }
+                Stop-Process -Id $launcherProcessId -Force
+                Wait-Process -Id $launcherProcessId -Timeout 10 -ErrorAction SilentlyContinue
+                if (Get-Process -Id $launcherProcessId -ErrorAction SilentlyContinue) { throw 'ตัวเปิดโปรแกรมเดิมยังปิดไม่สมบูรณ์ · ยังไม่ได้แทนที่ไฟล์' }
+            }
         }
     }
 
