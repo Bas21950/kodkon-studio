@@ -165,13 +165,28 @@ function App() {
       try {
         const update = JSON.parse(stored) as { update_id: string; version: string; started_at: number };
         if (update.update_id && update.version && Date.now() - update.started_at < 5 * 60 * 1000) {
-          setUpdateProgress({
-            update_id: update.update_id,
-            version: update.version,
-            status: 'restarting',
-            progress: 94,
-            message: 'กำลังเปิดโปรแกรมเวอร์ชันใหม่และตรวจสอบความเรียบร้อย',
-            started_at: update.started_at,
+          void api.capabilities().then((current) => {
+            if (current.version === update.version) {
+              window.localStorage.removeItem('kodkon-active-update');
+              return;
+            }
+            setUpdateProgress({
+              update_id: update.update_id,
+              version: update.version,
+              status: 'restarting',
+              progress: 94,
+              message: 'กำลังเปิดโปรแกรมเวอร์ชันใหม่และตรวจสอบความเรียบร้อย',
+              started_at: update.started_at,
+            });
+          }).catch(() => {
+            setUpdateProgress({
+              update_id: update.update_id,
+              version: update.version,
+              status: 'restarting',
+              progress: 94,
+              message: 'กำลังเปิดโปรแกรมเวอร์ชันใหม่และตรวจสอบความเรียบร้อย',
+              started_at: update.started_at,
+            });
           });
         } else window.localStorage.removeItem('kodkon-active-update');
       } catch { window.localStorage.removeItem('kodkon-active-update'); }
@@ -200,6 +215,16 @@ function App() {
           ? { ...progress, started_at: current.started_at }
           : current);
       } catch {
+        try {
+          const current = await api.capabilities();
+          if (current.version === updateProgress.version) {
+            window.localStorage.removeItem('kodkon-active-update');
+            setUpdateProgress((value) => value?.update_id === updateId
+              ? { ...value, status: 'completed', progress: 100, message: 'อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน' }
+              : value);
+            return;
+          }
+        } catch { /* Keep waiting while the new server starts. */ }
         setUpdateProgress((current) => current?.update_id === updateId && current.status !== 'restarting'
           ? { ...current, status: 'restarting', progress: Math.max(current.progress, 90), message: 'กำลังปิดโปรแกรมเดิมและเปิดรุ่นใหม่' }
           : current);
