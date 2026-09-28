@@ -164,7 +164,7 @@ function App() {
     if (stored) {
       try {
         const update = JSON.parse(stored) as { update_id: string; version: string; started_at: number };
-        if (update.update_id && update.version && Date.now() - update.started_at < 5 * 60 * 1000) {
+        if (update.update_id && update.version && Date.now() - update.started_at < 25 * 60 * 1000) {
           void api.capabilities().then((current) => {
             if (current.version === update.version) {
               window.localStorage.removeItem('kodkon-active-update');
@@ -202,10 +202,10 @@ function App() {
     const updateId = updateProgress?.update_id;
     if (!updateId || ['completed', 'failed'].includes(updateProgress.status)) return;
     const pollProgress = async () => {
-      if (Date.now() - updateProgress.started_at > 5 * 60 * 1000) {
+      if (Date.now() - updateProgress.started_at > 25 * 60 * 1000) {
         window.localStorage.removeItem('kodkon-active-update');
         setUpdateProgress((current) => current?.update_id === updateProgress.update_id
-          ? { ...current, status: 'failed', progress: 0, message: 'รออัปเดตนานเกินไป · เปิดโปรแกรมใหม่แล้วลองอีกครั้ง' }
+          ? { ...current, status: 'failed', progress: 0, message: 'อัปเดตนานเกิน 25 นาที · ตรวจอินเทอร์เน็ตแล้วลองใหม่ ข้อมูลโปรเจกต์ยังอยู่ครบ' }
           : current);
         return;
       }

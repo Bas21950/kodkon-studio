@@ -4,8 +4,11 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -18,6 +21,8 @@ GITHUB_REPOSITORY = os.environ.get("KODKON_GITHUB_REPOSITORY", "Bas21950/kodkon-
 GITHUB_API_VERSION = "2026-03-10"
 MAX_RELEASE_JSON_BYTES = 2 * 1024 * 1024
 MAX_RELEASE_ASSET_BYTES = 512 * 1024 * 1024
+DOWNLOAD_STALL_SECONDS = 120
+DOWNLOAD_TOTAL_SECONDS = 20 * 60
 VERSION_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$")
 SHA256_PATTERN = re.compile(r"^([a-fA-F0-9]{64})\s+")
 _progress_lock = threading.Lock()
@@ -70,7 +75,7 @@ def get_update_progress(update_id: str, current_version: str, status_path: Path 
         with _progress_lock:
             if _current_progress and _current_progress.get("update_id") == update_id:
                 result = dict(_current_progress)
-    if result and result.get("status") == "restarting" and result.get("version") == current_version:
+    if result and result.get("version") == current_version:
         result.update(status="completed", progress=100, message="อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน")
     if result and result.get("status") in {"completed", "failed"}:
         with _progress_lock:
@@ -161,15 +166,74 @@ def get_latest_update(current_version: str, repository: str | None = None) -> di
         "installable": installable,
         "package_url": _asset_url(package_asset, repository) if package_asset else None,
         "checksum_url": _asset_url(checksum_asset, repository) if checksum_asset else None,
+        "package_size": package_asset.get("size") if package_asset else None,
     }
 
 
-def download_verified_update(update: dict, progress_callback: Callable[[int, int, int | None], None] | None = None) -> Path:
+def _download_with_windows(url: str, expected_digest: str, expected_size: int | None,
+                           progress_callback: Callable[[int, int | None], None] | None) -> Path:
+    powershell = shutil.which("powershell.exe")
+    script = Path(__file__).resolve().parents[3] / "scripts" / "download-update.ps1"
+    if not powershell or not script.is_file():
+        raise UpdateError("ดาวน์โหลดจาก GitHub ไม่สำเร็จ และไม่มีตัวดาวน์โหลดสำรองของ Windows")
+    with tempfile.NamedTemporaryFile(prefix="kodkon-update-", suffix=".zip", delete=False) as temp:
+        path = Path(temp.name)
+    environment = os.environ.copy()
+    environment.update(KODKON_DOWNLOAD_URL=url, KODKON_DOWNLOAD_PATH=str(path))
+    process: subprocess.Popen | None = None
+    try:
+        process = subprocess.Popen(
+            [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(script)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env=environment,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        started = last_growth = time.monotonic()
+        last_size = 0
+        while process.poll() is None:
+            size = path.stat().st_size
+            if size != last_size:
+                last_size, last_growth = size, time.monotonic()
+                if progress_callback:
+                    progress_callback(size, expected_size)
+            if size > MAX_RELEASE_ASSET_BYTES:
+                raise UpdateError("ไฟล์อัปเดตใหญ่เกินขนาดที่กำหนด")
+            if time.monotonic() - last_growth > DOWNLOAD_STALL_SECONDS:
+                raise UpdateError("ดาวน์โหลดไม่เดินต่อเกิน 2 นาที · ตรวจอินเทอร์เน็ตแล้วลองใหม่")
+            if time.monotonic() - started > DOWNLOAD_TOTAL_SECONDS:
+                raise UpdateError("ดาวน์โหลดอัปเดตนานเกิน 20 นาที · ลองใหม่เมื่ออินเทอร์เน็ตเสถียร")
+            time.sleep(1)
+        if process.returncode != 0:
+            raise UpdateError("ดาวน์โหลดจาก GitHub ไม่สำเร็จทั้งสองช่องทาง · ลองใหม่หรือใช้ตัวติดตั้งจากหน้า Release")
+        if path.stat().st_size > MAX_RELEASE_ASSET_BYTES:
+            raise UpdateError("ไฟล์อัปเดตใหญ่เกินขนาดที่กำหนด")
+        if expected_size is not None and path.stat().st_size != expected_size:
+            raise UpdateError("ดาวน์โหลดไฟล์อัปเดตมาไม่ครบ · ลองใหม่")
+        digest = hashlib.sha256()
+        with path.open("rb") as downloaded:
+            while chunk := downloaded.read(1024 * 1024):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_digest:
+            raise UpdateError("ตรวจสอบ SHA-256 ไม่ผ่าน · ยกเลิกการติดตั้งเพื่อความปลอดภัย")
+        if progress_callback:
+            progress_callback(path.stat().st_size, expected_size)
+        return path
+    except Exception:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            process.wait(timeout=10)
+        path.unlink(missing_ok=True)
+        raise
+
+
+def download_verified_update(update: dict, progress_callback: Callable[[int, int | None], None] | None = None,
+                             fallback_callback: Callable[[], None] | None = None) -> Path:
     package_url = update.get("package_url")
     checksum_url = update.get("checksum_url")
     if not update.get("update_available") or not update.get("installable") or not package_url or not checksum_url:
         raise UpdateError("Release ล่าสุดยังไม่มีไฟล์อัปเดตที่ติดตั้งได้")
 
+    expected_digest: str | None = None
     try:
         with _request(checksum_url, accept="text/plain") as response:
             checksum_text = response.read(4096).decode("ascii", errors="strict")
@@ -178,7 +242,7 @@ def download_verified_update(update: dict, progress_callback: Callable[[int, int
             raise UpdateError("ไฟล์ตรวจสอบ SHA-256 ของอัปเดตไม่ถูกต้อง")
         expected_digest = match.group(1).lower()
 
-        with _request(package_url, accept="application/octet-stream", timeout=120) as response:
+        with _request(package_url, accept="application/octet-stream", timeout=20) as response:
             final_host = urlsplit(response.geturl()).hostname or ""
             if final_host != "github.com" and not final_host.endswith(".githubusercontent.com"):
                 raise UpdateError("ปลายทางดาวน์โหลดไม่ใช่ GitHub")
@@ -191,7 +255,7 @@ def download_verified_update(update: dict, progress_callback: Callable[[int, int
             total = 0
             try:
                 with temp:
-                    while chunk := response.read(1024 * 1024):
+                    while chunk := response.read(64 * 1024):
                         total += len(chunk)
                         if total > MAX_RELEASE_ASSET_BYTES:
                             raise UpdateError("ไฟล์อัปเดตใหญ่เกินขนาดที่กำหนด")
@@ -208,5 +272,12 @@ def download_verified_update(update: dict, progress_callback: Callable[[int, int
         return archive_path
     except HTTPError as exc:
         raise UpdateError(f"ดาวน์โหลด Release จาก GitHub ไม่สำเร็จ (HTTP {exc.code})") from exc
-    except (URLError, TimeoutError, UnicodeDecodeError, ValueError) as exc:
+    except (URLError, TimeoutError) as exc:
+        if os.name != "nt" or expected_digest is None:
+            raise UpdateError("ดาวน์โหลดหรืออ่านไฟล์ตรวจสอบอัปเดตไม่สำเร็จ") from exc
+        if fallback_callback:
+            fallback_callback()
+        size = update.get("package_size")
+        return _download_with_windows(package_url, expected_digest, size if isinstance(size, int) and size > 0 else None, progress_callback)
+    except (UnicodeDecodeError, ValueError) as exc:
         raise UpdateError("ดาวน์โหลดหรืออ่านไฟล์ตรวจสอบอัปเดตไม่สำเร็จ") from exc

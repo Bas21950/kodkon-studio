@@ -120,6 +120,34 @@ def test_downloaded_update_must_match_published_sha256(monkeypatch):
         path.unlink(missing_ok=True)
 
 
+def test_stalled_download_uses_windows_fallback(monkeypatch, tmp_path):
+    archive = b"verified fallback package"
+    digest = hashlib.sha256(archive).hexdigest()
+    update = {
+        "update_available": True,
+        "installable": True,
+        "package_url": "https://github.com/owner/repo/releases/download/v0.3.0/app.zip",
+        "checksum_url": "https://github.com/owner/repo/releases/download/v0.3.0/app.zip.sha256",
+        "package_size": len(archive),
+    }
+
+    class TimedOutResponse(FakeResponse):
+        def read(self, size=-1):
+            raise TimeoutError("asset stalled")
+
+    monkeypatch.setattr(updates, "_request", lambda url, **_kwargs: FakeResponse(f"{digest}  app.zip".encode()) if url.endswith(".sha256") else TimedOutResponse(b""))
+    fallback_file = tmp_path / "fallback.zip"
+    fallback_file.write_bytes(archive)
+    called = []
+    monkeypatch.setattr(updates, "_download_with_windows", lambda url, checksum, size, progress: (called.append((url, checksum, size)), fallback_file)[1])
+
+    result = updates.download_verified_update(update, fallback_callback=lambda: called.append("fallback"))
+
+    assert result == fallback_file
+    assert called[0] == "fallback"
+    assert called[1] == (update["package_url"], digest, len(archive))
+
+
 def test_update_progress_survives_process_restart_and_finishes_on_new_version(tmp_path):
     update_id = "a" * 32
     status_path = tmp_path / f"kodkon-update-status-{update_id}.json"
@@ -131,6 +159,18 @@ def test_update_progress_survives_process_restart_and_finishes_on_new_version(tm
     assert pending is not None and pending["status"] == "restarting"
     assert complete is not None and complete["status"] == "completed"
     assert complete["progress"] == 100
+
+
+def test_updated_version_finishes_even_if_old_status_was_downloading(tmp_path):
+    update_id = "c" * 32
+    status_path = tmp_path / f"kodkon-update-status-{update_id}.json"
+    updates.set_update_progress(update_id, "0.4.21", "downloading", 4, "old status", status_path)
+
+    result = updates.get_update_progress(update_id, "0.4.21", status_path)
+
+    assert result is not None
+    assert result["status"] == "completed"
+    assert result["progress"] == 100
 
 
 def test_failed_installer_status_releases_in_memory_update_lock(tmp_path):

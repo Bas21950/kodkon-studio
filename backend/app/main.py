@@ -585,12 +585,15 @@ def _install_update_in_background(requested_version: str, update_id: str, status
             message = "กำลังดาวน์โหลดไฟล์อัปเดต" if total is None else f"กำลังดาวน์โหลดไฟล์อัปเดต · {progress}%"
             set_update_progress(update_id, version, "downloading", progress, message, status_path)
 
+    def report_fallback() -> None:
+        set_update_progress(update_id, version, "downloading", 4, "ช่องทางแรกไม่ตอบสนอง · กำลังใช้ตัวดาวน์โหลด Windows", status_path)
+
     try:
         update = get_latest_update(settings.app_version)
         if update.get("latest_version") != requested_version or not update.get("update_available") or not update.get("installable"):
             raise UpdateError("เวอร์ชันอัปเดตเปลี่ยนไปแล้ว · ตรวจสอบรายการใหม่ก่อนติดตั้ง")
         set_update_progress(update_id, version, "downloading", 4, "กำลังดาวน์โหลดไฟล์อัปเดตจาก GitHub", status_path)
-        archive_path = download_verified_update(update, report_download)
+        archive_path = download_verified_update(update, report_download, report_fallback)
         set_update_progress(update_id, version, "verifying", 76, "ตรวจสอบ SHA-256 ผ่าน · กำลังเตรียมติดตั้ง", status_path)
         powershell = shutil.which("powershell.exe")
         if not powershell:
@@ -701,7 +704,8 @@ def application_update_progress(update_id: str):
     target_version = os.environ.get("KODKON_UPDATE_TARGET_VERSION")
     if target_version and target_version == settings.app_version:
         return {"update_id": update_id, "version": target_version, "status": "completed", "progress": 100, "message": "อัปเดตเสร็จแล้ว · โปรแกรมพร้อมใช้งาน"}
-    status = get_update_progress(update_id, settings.app_version, _update_status_path())
+    status_path = _update_status_path() or Path(tempfile.gettempdir()) / f"kodkon-update-status-{update_id}.json"
+    status = get_update_progress(update_id, settings.app_version, status_path)
     if status is None:
         raise HTTPException(status_code=404, detail="ไม่พบสถานะอัปเดตนี้")
     return status
