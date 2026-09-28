@@ -85,9 +85,10 @@ export const api = {
     if (!product_details.trim()) imageFiles.forEach((file) => body.append('image_files', file, file.name));
     return request<ImagePostCopy>('/api/image-posts/generate-copy', { method: 'POST', body });
   },
-  createImagePost: (imageFiles: File[], data: { caption: string; comment_text: string; affiliate_url: string; product_details: string }) => {
+  createImagePost: (imageFiles: File[], data: { caption: string; comment_text: string; affiliate_url: string; product_details: string }, submissionId: string) => {
     const body = new FormData();
     imageFiles.forEach((imageFile) => body.append('image_files', imageFile, imageFile.name));
+    body.append('submission_id', submissionId);
     body.append('caption', data.caption);
     body.append('comment_text', data.comment_text);
     body.append('affiliate_url', data.affiliate_url);
@@ -95,6 +96,7 @@ export const api = {
     return request<Publication>('/api/image-posts', { method: 'POST', body });
   },
   publications: (status = '') => request<Publication[]>(`/api/publications${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  publication: (id: string) => request<Publication>(`/api/publications/${encodeURIComponent(id)}`),
   replacePublicationImage: (publicationId: string, assetId: string, file: File) => {
     const body = new FormData();
     body.append('image_file', file, file.name);

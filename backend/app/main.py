@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -1498,6 +1499,7 @@ async def create_image_publication(
     comment_text: str = Form(default=""),
     affiliate_url: str = Form(default=""),
     product_details: str = Form(default=""),
+    submission_id: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     if not caption.strip():
@@ -1506,6 +1508,15 @@ async def create_image_publication(
         raise HTTPException(status_code=422, detail="ใส่ลิงก์ Affiliate ก่อนเตรียมโพสต์ เพื่อให้มีพิกัดสั่งซื้อในแคปชันและคอมเมนต์")
     if not 1 <= len(image_files) <= MAX_POST_IMAGES:
         raise HTTPException(status_code=422, detail=f"เลือกรูปได้ตั้งแต่ 1 ถึง {MAX_POST_IMAGES} รูป")
+    try:
+        publication_id = str(uuid.UUID(submission_id)) if submission_id else str(uuid.uuid4())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="รหัสคำขอบันทึกโพสต์ไม่ถูกต้อง") from exc
+    existing = db.get(Publication, publication_id)
+    if existing is not None:
+        if existing.media_type != "image":
+            raise HTTPException(status_code=409, detail="รหัสคำขอบันทึกถูกใช้กับโพสต์อื่นแล้ว")
+        return publication_payload(existing, db)
     try:
         project_input = ProjectCreate(
             title=f"โพสต์ภาพสินค้า {datetime.now(timezone(timedelta(hours=7))).strftime('%d-%m %H:%M')}",
@@ -1516,6 +1527,7 @@ async def create_image_publication(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    logger.info("Saving image post draft (submission_id=%s, image_count=%s)", publication_id, len(image_files))
     image_payloads = [await _read_image_upload(upload) for upload in image_files]
     if sum(len(payload[0]) for payload in image_payloads) > 36 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="ภาพทั้งหมดรวมกันต้องไม่เกิน 36 MB")
@@ -1562,7 +1574,7 @@ async def create_image_publication(
         output_asset = output_assets[0]
         page = active_facebook_page(db)
         publication = Publication(
-            id=str(uuid.uuid4()),
+            id=publication_id,
             project_id=project.id,
             revision_id=None,
             render_asset_id=output_asset.id,
@@ -1588,11 +1600,21 @@ async def create_image_publication(
         ))
         db.commit()
         db.refresh(publication)
+        logger.info("Image post draft saved (submission_id=%s)", publication_id)
         return publication_payload(publication, db)
+    except IntegrityError:
+        db.rollback()
+        for path in saved_paths:
+            path.unlink(missing_ok=True)
+        existing = db.get(Publication, publication_id)
+        if existing is not None and existing.media_type == "image":
+            return publication_payload(existing, db)
+        raise
     except Exception:
         db.rollback()
         for path in saved_paths:
             path.unlink(missing_ok=True)
+        logger.exception("Image post draft save failed (submission_id=%s)", publication_id)
         raise
 
 

@@ -1,4 +1,5 @@
 import pytest
+import uuid
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
 
@@ -137,6 +138,33 @@ def test_image_post_keeps_multiple_images_product_info_and_affiliate_links(produ
     assert len(publication["media_assets"]) == 2
     assert publication["render_asset"]["id"] == publication["media_assets"][0]["id"]
     assert publication["media_type"] == "image"
+
+
+def test_retrying_image_post_save_reuses_the_same_draft(product_client):
+    submission_id = str(uuid.uuid4())
+    form = {
+        "caption": "ชั้นวางเอกสารสำหรับโต๊ะทำงาน",
+        "affiliate_url": "https://s.shopee.co.th/example",
+        "submission_id": submission_id,
+    }
+    image = b"\x89PNG\r\n\x1a\npayload"
+    first = product_client.post(
+        "/api/image-posts", headers=ORIGIN,
+        files={"image_files": ("shelf.png", image, "image/png")}, data=form,
+    )
+    assert first.status_code == 201, first.text
+
+    repeated = product_client.post(
+        "/api/image-posts", headers=ORIGIN,
+        files={"image_files": ("shelf.png", image, "image/png")}, data=form,
+    )
+    assert repeated.status_code == 201, repeated.text
+    assert repeated.json()["id"] == first.json()["id"] == submission_id
+    assert repeated.json()["project_id"] == first.json()["project_id"]
+    assert len(repeated.json()["media_assets"]) == 1
+    listed = product_client.get(f"/api/publications?project_id={first.json()['project_id']}", headers=ORIGIN)
+    assert listed.status_code == 200, listed.text
+    assert [post["id"] for post in listed.json()] == [submission_id]
 
 
 def test_editing_image_post_replaces_the_selected_original_file(product_client):

@@ -1132,8 +1132,12 @@ function ContentStudioPage({ startVideo, startPhoto, openQueue }: {
   );
 }
 
+function isImagePostNetworkError(reason: unknown): reason is TypeError {
+  return reason instanceof TypeError && /fetch|network/i.test(reason.message);
+}
+
 function imagePostError(reason: unknown): string {
-  if (reason instanceof TypeError && /fetch|network/i.test(reason.message)) {
+  if (isImagePostNetworkError(reason)) {
     return 'การเชื่อมต่อกับโปรแกรมหลุดชั่วคราว · ระบบลองส่งคำขอซ้ำแล้ว แต่ยังไม่ได้รับคำตอบ รูปและข้อมูลยังอยู่ครบ กดสร้างแคปชั่นอีกครั้งได้เลย';
   }
   if (reason instanceof ApiError) {
@@ -1149,7 +1153,15 @@ function imagePostError(reason: unknown): string {
   return reason instanceof Error ? reason.message : 'ทำรายการไม่สำเร็จ ข้อมูลที่กรอกยังอยู่ในหน้านี้';
 }
 
+function imagePostSaveError(reason: unknown): string {
+  if (isImagePostNetworkError(reason)) {
+    return 'เชื่อมต่อกับโปรแกรมขณะบันทึกไม่สำเร็จ · รูปและข้อความยังอยู่ในหน้านี้ กดบันทึกอีกครั้งได้ ระบบจะไม่สร้างโพสต์ซ้ำ';
+  }
+  return reason instanceof Error ? reason.message : 'บันทึกโพสต์ภาพไม่สำเร็จ รูปและข้อมูลยังอยู่ในหน้านี้';
+}
+
 function ImagePostPage({ onSaved }: { onSaved: () => void }) {
+  const saveRequestId = useRef(crypto.randomUUID());
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [productInfo, setProductInfo] = useState('');
@@ -1227,9 +1239,29 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
     if (!imageFiles.length) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      await api.createImagePost(imageFiles, { caption, comment_text: comment, affiliate_url: affiliateUrl, product_details: productInfo });
-      onSaved();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'บันทึกดราฟต์ภาพไม่สำเร็จ'); }
+      let failure: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await api.createImagePost(imageFiles, { caption, comment_text: comment, affiliate_url: affiliateUrl, product_details: productInfo }, saveRequestId.current);
+          onSaved();
+          return;
+        } catch (reason) {
+          failure = reason;
+          if (!isImagePostNetworkError(reason) || attempt === 1) break;
+          await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        }
+      }
+      if (isImagePostNetworkError(failure)) {
+        try {
+          await api.publication(saveRequestId.current);
+          onSaved();
+          return;
+        } catch {
+          // The draft is not confirmed. Keep the form so the same request can be retried.
+        }
+      }
+      setError(imagePostSaveError(failure));
+    } catch (reason) { setError(imagePostSaveError(reason)); }
     finally { setSaving(false); }
   };
 
@@ -1254,7 +1286,7 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
           <button className="button button-secondary image-ai-button" onClick={() => void generateCopy()} disabled={(!productInfo.trim() && !imageFiles.length) || !affiliateUrl.trim() || generating || saving}><Sparkles size={16} />{generating ? 'กำลังเขียนโพสต์…' : 'ให้ AI เขียนแคปชั่น + คอมเมนต์'}</button>
           <div className={`image-link-target ${affiliateUrl.trim() ? 'ready' : 'missing'}`}><Link2 size={15} /><div><strong>{affiliateUrl.trim() ? 'พิกัดสั่งซื้อที่จะใส่ในโพสต์และคอมเมนต์' : 'ยังไม่มีลิงก์สินค้า'}</strong><span>{affiliateUrl.trim() || 'วางลิงก์ Affiliate ในช่องฝั่งซ้ายก่อนสร้างข้อความ'}</span></div></div>
           {modelName && <p className="product-input-hint">สร้างด้วย {modelName}{copySource !== productInfo.trim() || copyAffiliateSource !== affiliateUrl.trim() ? ' · ข้อมูลสินค้าหรือลิงก์เปลี่ยนแล้ว กดสร้างใหม่เพื่ออัปเดตข้อความ' : ''}</p>}
-          <label className="form-label long-caption-field">แคปชั่น<textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={8} placeholder="แคปชั่นกวน ๆ ขายตรงจากข้อมูลสินค้าจะอยู่ตรงนี้" /></label>
+          <label className="form-label long-caption-field">แคปชั่น<textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={8} placeholder="แคปชั่นที่เล่าข้อมูลสินค้าแบบธรรมชาติจะอยู่ตรงนี้" /></label>
           <label className="form-label">คอมเมนต์<textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} placeholder="ข้อความสั้นชวนกดดูสินค้า · ระบบเติมลิงก์ให้อัตโนมัติ" /></label>
           <div className="image-save-row"><span>{!affiliateUrl.trim() ? 'ใส่ลิงก์ Affiliate ก่อนบันทึกโพสต์' : imageFiles.length ? `แนบ ${imageFiles.length} รูป · บันทึกแล้วเปิดคิวโพสต์` : 'ใช้ภาพที่แนบตรง ๆ ไม่มีการจัดหรือแก้ภาพด้วย AI'}</span><button className="button button-primary" onClick={() => void save()} disabled={!imageFiles.length || !caption.trim() || !affiliateUrl.trim() || saving || generating}><Save size={15} />{saving ? 'กำลังบันทึก…' : 'บันทึกและไปคิวโพสต์'}</button></div>
         </div>
