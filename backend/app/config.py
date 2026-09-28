@@ -20,7 +20,7 @@ class Settings:
     data_dir: Path = default_data_dir()
     max_upload_bytes: int = 2 * 1024 * 1024 * 1024
     ffprobe_path: str | None = os.environ.get("FFPROBE_PATH")
-    app_version: str = "0.4.20"
+    app_version: str = "0.4.21"
 
     @property
     def database_path(self) -> Path:

@@ -1191,6 +1191,7 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
   const [previews, setPreviews] = useState<string[]>([]);
   const [productInfo, setProductInfo] = useState('');
   const [affiliateUrl, setAffiliateUrl] = useState('');
+  const [autoAppendLink, setAutoAppendLink] = useState(false);
   const [caption, setCaption] = useState('');
   const [comment, setComment] = useState('');
   const [copySource, setCopySource] = useState('');
@@ -1235,12 +1236,6 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
 
   const removeImage = (index: number) => setImageFiles((current) => current.filter((_, itemIndex) => itemIndex !== index));
 
-  const syncAffiliateLink = (text: string, url: string, label: string) => {
-    const linkLabels = ['🛒 พิกัดสินค้า กดดูตรงนี้:', '👉 กดสั่ง/ดูรายละเอียด:'];
-    const body = text.split(/\r?\n/).filter((line) => !linkLabels.some((prefix) => line.trim().startsWith(prefix))).join('\n').trim();
-    return body && url.trim() ? `${body}\n\n${label}: ${url.trim()}` : body;
-  };
-
   const generateCopy = async () => {
     setGenerating(true); setError(''); setNotice('');
     try {
@@ -1248,11 +1243,11 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
       const link = affiliateUrl.trim();
       let result;
       try {
-        result = await api.generateImagePostCopy(source, link, imageFiles);
+        result = await api.generateImagePostCopy(source, link, imageFiles, autoAppendLink);
       } catch (reason) {
         if (!(reason instanceof TypeError) || !/fetch|network/i.test(reason.message)) throw reason;
         await new Promise((resolve) => window.setTimeout(resolve, 1200));
-        result = await api.generateImagePostCopy(source, link, imageFiles);
+        result = await api.generateImagePostCopy(source, link, imageFiles, autoAppendLink);
       }
       setCaption(result.caption); setComment(result.comment_text); setCopySource(source); setCopyAffiliateSource(link); setModelName(result.model_name);
       setNotice('ได้แคปชั่นและคอมเมนต์แล้ว · ตรวจแก้ได้ก่อนบันทึก');
@@ -1267,7 +1262,7 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
       let failure: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          await api.createImagePost(imageFiles, { caption, comment_text: comment, affiliate_url: affiliateUrl, product_details: productInfo }, saveRequestId.current);
+          await api.createImagePost(imageFiles, { caption, comment_text: comment, affiliate_url: affiliateUrl, product_details: productInfo, auto_append_link: autoAppendLink }, saveRequestId.current);
           onSaved();
           return;
         } catch (reason) {
@@ -1292,7 +1287,7 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
 
   return (
     <section className="page-content image-post-page">
-      <PageTitle eyebrow="โพสต์ภาพสินค้า" title="เตรียมโพสต์ภาพ" subtitle="แนบภาพที่จัดเอง ใส่ข้อมูลกับลิงก์ แล้วให้ AI เขียนแคปชั่นและคอมเมนต์" action={<button className="button button-secondary" onClick={onSaved}><ArrowLeft size={15} />กลับรายการโพสต์</button>} />
+      <PageTitle eyebrow="โพสต์ภาพสินค้า" title="เตรียมโพสต์ภาพ" subtitle="แนบภาพที่จัดเอง แล้วเขียนแคปชั่นเองหรือให้ AI ช่วยเขียน" action={<button className="button button-secondary" onClick={onSaved}><ArrowLeft size={15} />กลับรายการโพสต์</button>} />
       {error && <div className="image-error-banner" role="alert"><CircleHelp size={18} /><div><strong>ทำรายการไม่สำเร็จ</strong><span>{error}</span><small>รูปและข้อมูลที่กรอกยังอยู่ในหน้านี้</small></div><button className="icon-button" onClick={() => setError('')} aria-label="ปิดข้อความผิดพลาด"><X size={16} /></button></div>}{notice && <div className="form-success"><CheckCircle2 size={15} />{notice}</div>}
       <div className="image-composer-grid">
         <div className="image-composer-controls content-panel">
@@ -1302,18 +1297,19 @@ function ImagePostPage({ onSaved }: { onSaved: () => void }) {
             {imageFiles.map((file, index) => <div className="image-post-thumb" key={`${file.name}-${file.lastModified}-${index}`}><img src={previews[index]} alt={`ภาพโพสต์ ${index + 1}`} /><span>{index === 0 ? 'ปก' : `${index + 1}`}</span><button type="button" onClick={() => removeImage(index)} aria-label={`ลบภาพที่ ${index + 1}`}><X size={13} /></button><small title={file.name}>{file.name}</small></div>)}
           </div>}
           <label className="form-label image-details-field">ข้อมูลสินค้า<textarea value={productInfo} onChange={(event) => setProductInfo(event.target.value)} rows={7} maxLength={24000} placeholder="ใส่ชื่อสินค้า จุดเด่น สเปกสำคัญ ราคา/โปร และข้อมูลรีวิวที่อยากให้ AI ใช้" /></label>
-          <label className="form-label">ลิงก์ Affiliate <span className="optional-label">จำเป็นสำหรับพิกัดสั่งซื้อ</span><input required value={affiliateUrl} onChange={(event) => { const value = event.target.value; setAffiliateUrl(value); setCaption((current) => syncAffiliateLink(current, value, '🛒 พิกัดสินค้า กดดูตรงนี้')); setComment((current) => syncAffiliateLink(current, value, '👉 กดสั่ง/ดูรายละเอียด')); }} placeholder="วางลิงก์สินค้า Affiliate เช่น https://s.shopee.co.th/..." /></label>
-          <p className="product-input-hint">ถ้าไม่ใส่ข้อมูลสินค้า AI จะอ่านจากภาพที่แนบ · ระบบแทรกลิงก์จริงท้ายแคปชันและคอมเมนต์</p>
+          <label className="form-label">ลิงก์ Affiliate <span className="optional-label">ไม่บังคับ</span><input type="url" value={affiliateUrl} onChange={(event) => setAffiliateUrl(event.target.value)} placeholder="วางลิงก์เมื่ออยากให้ระบบใช้ เช่น https://s.shopee.co.th/..." /></label>
+          <label className="image-auto-link-option"><input type="checkbox" checked={autoAppendLink} onChange={(event) => setAutoAppendLink(event.target.checked)} /> เติมลิงก์จากช่องนี้ในแคปชั่นและคอมเมนต์อัตโนมัติ</label>
+          <p className="product-input-hint">ถ้าเขียนลิงก์ไว้ในแคปชั่นเองแล้ว ไม่ต้องกรอกช่องนี้ · ถ้าไม่ใส่ข้อมูลสินค้า AI จะอ่านจากภาพที่แนบ</p>
         </div>
 
         <div className="image-copy-panel content-panel">
           <div className="panel-heading compact"><div><span className="panel-kicker">ขั้นตอนที่ 2</span><h2>แคปชั่นและคอมเมนต์</h2></div><span className="optional-label">แก้ได้ก่อนบันทึก</span></div>
-          <button className="button button-secondary image-ai-button" onClick={() => void generateCopy()} disabled={(!productInfo.trim() && !imageFiles.length) || !affiliateUrl.trim() || generating || saving}><Sparkles size={16} />{generating ? 'กำลังเขียนโพสต์…' : 'ให้ AI เขียนแคปชั่น + คอมเมนต์'}</button>
-          <div className={`image-link-target ${affiliateUrl.trim() ? 'ready' : 'missing'}`}><Link2 size={15} /><div><strong>{affiliateUrl.trim() ? 'พิกัดสั่งซื้อที่จะใส่ในโพสต์และคอมเมนต์' : 'ยังไม่มีลิงก์สินค้า'}</strong><span>{affiliateUrl.trim() || 'วางลิงก์ Affiliate ในช่องฝั่งซ้ายก่อนสร้างข้อความ'}</span></div></div>
+          <button className="button button-secondary image-ai-button" onClick={() => void generateCopy()} disabled={(!productInfo.trim() && !imageFiles.length) || generating || saving}><Sparkles size={16} />{generating ? 'กำลังเขียนโพสต์…' : 'ให้ AI เขียนแคปชั่น + คอมเมนต์'}</button>
+          <div className={`image-link-target ${affiliateUrl.trim() ? 'ready' : 'missing'}`}><Link2 size={15} /><div><strong>{affiliateUrl.trim() ? 'ลิงก์สินค้าที่ระบุไว้' : 'ไม่ได้ระบุลิงก์สินค้า'}</strong><span>{affiliateUrl.trim() || 'บันทึกโพสต์ได้โดยไม่ต้องใส่ลิงก์'}</span></div></div>
           {modelName && <p className="product-input-hint">สร้างด้วย {modelName}{copySource !== productInfo.trim() || copyAffiliateSource !== affiliateUrl.trim() ? ' · ข้อมูลสินค้าหรือลิงก์เปลี่ยนแล้ว กดสร้างใหม่เพื่ออัปเดตข้อความ' : ''}</p>}
           <label className="form-label long-caption-field">แคปชั่น<textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={8} placeholder="แคปชั่นที่เล่าข้อมูลสินค้าแบบธรรมชาติจะอยู่ตรงนี้" /></label>
-          <label className="form-label">คอมเมนต์<textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} placeholder="ข้อความสั้นชวนกดดูสินค้า · ระบบเติมลิงก์ให้อัตโนมัติ" /></label>
-          <div className="image-save-row"><span>{!affiliateUrl.trim() ? 'ใส่ลิงก์ Affiliate ก่อนบันทึกโพสต์' : imageFiles.length ? `แนบ ${imageFiles.length} รูป · บันทึกแล้วเปิดคิวโพสต์` : 'ใช้ภาพที่แนบตรง ๆ ไม่มีการจัดหรือแก้ภาพด้วย AI'}</span><button className="button button-primary" onClick={() => void save()} disabled={!imageFiles.length || !caption.trim() || !affiliateUrl.trim() || saving || generating}><Save size={15} />{saving ? 'กำลังบันทึก…' : 'บันทึกและไปคิวโพสต์'}</button></div>
+          <label className="form-label">คอมเมนต์<textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={3} placeholder="ใส่คอมเมนต์เองได้ ไม่บังคับ" /></label>
+          <div className="image-save-row"><span>{imageFiles.length ? `แนบ ${imageFiles.length} รูป · บันทึกแล้วเปิดคิวโพสต์` : 'แนบภาพอย่างน้อย 1 รูปก่อนบันทึก'}</span><button className="button button-primary" onClick={() => void save()} disabled={!imageFiles.length || !caption.trim() || saving || generating}><Save size={15} />{saving ? 'กำลังบันทึก…' : 'บันทึกและไปคิวโพสต์'}</button></div>
         </div>
       </div>
     </section>

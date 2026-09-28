@@ -78,20 +78,22 @@ export const api = {
   ),
   createPublication: (revisionId: string, data: { render_asset_id: string; caption: string; comment_text: string }) =>
     request<Publication>(`/api/revisions/${encodeURIComponent(revisionId)}/publications`, { method: 'POST', body: JSON.stringify(data) }),
-  generateImagePostCopy: (product_details: string, affiliate_url: string, imageFiles: File[]) => {
+  generateImagePostCopy: (product_details: string, affiliate_url: string, imageFiles: File[], autoAppendLink: boolean) => {
     const body = new FormData();
     body.append('product_details', product_details);
     body.append('affiliate_url', affiliate_url);
+    body.append('auto_append_link', String(autoAppendLink));
     if (!product_details.trim()) imageFiles.forEach((file) => body.append('image_files', file, file.name));
     return request<ImagePostCopy>('/api/image-posts/generate-copy', { method: 'POST', body });
   },
-  createImagePost: (imageFiles: File[], data: { caption: string; comment_text: string; affiliate_url: string; product_details: string }, submissionId: string) => {
+  createImagePost: (imageFiles: File[], data: { caption: string; comment_text: string; affiliate_url: string; product_details: string; auto_append_link: boolean }, submissionId: string) => {
     const body = new FormData();
     imageFiles.forEach((imageFile) => body.append('image_files', imageFile, imageFile.name));
     body.append('submission_id', submissionId);
     body.append('caption', data.caption);
     body.append('comment_text', data.comment_text);
     body.append('affiliate_url', data.affiliate_url);
+    body.append('auto_append_link', String(data.auto_append_link));
     body.append('product_details', data.product_details);
     return request<Publication>('/api/image-posts', { method: 'POST', body });
   },

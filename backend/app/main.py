@@ -182,7 +182,8 @@ def read_ai_settings():
 @app.post("/api/image-posts/generate-copy")
 async def generate_image_post_copy(
     product_details: str = Form(default=""),
-    affiliate_url: str = Form(...),
+    affiliate_url: str = Form(default=""),
+    auto_append_link: bool = Form(default=True),
     image_files: list[UploadFile] = File(default=[]),
 ):
     product_details = product_details.strip()
@@ -228,8 +229,9 @@ async def generate_image_post_copy(
         caption = f"😏 {caption}"
     if not any("\U0001f300" <= char <= "\U0001faff" or "\u2600" <= char <= "\u27bf" for char in comment_text):
         comment_text = f"🛒 {comment_text}"
-    caption = append_affiliate_link(caption, affiliate_url, default_label="🛒 พิกัดสินค้า กดดูตรงนี้")
-    comment_text = append_affiliate_link(comment_text, affiliate_url, default_label="👉 กดสั่ง/ดูรายละเอียด")
+    if auto_append_link:
+        caption = append_image_post_link(caption, affiliate_url, default_label="🛒 พิกัดสินค้า กดดูตรงนี้")
+        comment_text = append_image_post_link(comment_text, affiliate_url, default_label="👉 กดสั่ง/ดูรายละเอียด")
     return {"caption": caption, "comment_text": comment_text, "model_name": model}
 
 
@@ -1387,6 +1389,13 @@ def append_affiliate_link(text: str, affiliate_url: str | None, *, default_label
     return f"{value}\n\n{link_line}" if value else link_line
 
 
+def append_image_post_link(text: str, affiliate_url: str | None, *, default_label: str) -> str:
+    value = text.strip()
+    if re.search(r"https?://\S+", value, re.IGNORECASE):
+        return value
+    return append_affiliate_link(value, affiliate_url, default_label=default_label)
+
+
 def publication_payload(publication: Publication, db: Session) -> dict:
     project = db.get(Project, publication.project_id)
     render_asset = db.get(Asset, publication.render_asset_id) if publication.render_asset_id else None
@@ -1498,14 +1507,13 @@ async def create_image_publication(
     caption: str = Form(...),
     comment_text: str = Form(default=""),
     affiliate_url: str = Form(default=""),
+    auto_append_link: bool = Form(default=True),
     product_details: str = Form(default=""),
     submission_id: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     if not caption.strip():
         raise HTTPException(status_code=422, detail="ใส่แคปชั่นก่อนเตรียมโพสต์ภาพ")
-    if not affiliate_url.strip():
-        raise HTTPException(status_code=422, detail="ใส่ลิงก์ Affiliate ก่อนเตรียมโพสต์ เพื่อให้มีพิกัดสั่งซื้อในแคปชันและคอมเมนต์")
     if not 1 <= len(image_files) <= MAX_POST_IMAGES:
         raise HTTPException(status_code=422, detail=f"เลือกรูปได้ตั้งแต่ 1 ถึง {MAX_POST_IMAGES} รูป")
     try:
@@ -1534,8 +1542,8 @@ async def create_image_publication(
 
     now = datetime.now(timezone.utc)
     project = Project(**project_input.model_dump())
-    linked_caption = append_affiliate_link(caption.strip()[:5000], project.affiliate_url, default_label="🛒 พิกัดสินค้า กดดูตรงนี้")
-    linked_comment = append_affiliate_link(comment_text.strip()[:2000], project.affiliate_url, default_label="👉 กดสั่ง/ดูรายละเอียด")
+    linked_caption = append_image_post_link(caption.strip()[:5000], project.affiliate_url, default_label="🛒 พิกัดสินค้า กดดูตรงนี้") if auto_append_link else caption.strip()[:5000]
+    linked_comment = append_image_post_link(comment_text.strip()[:2000], project.affiliate_url, default_label="👉 กดสั่ง/ดูรายละเอียด") if auto_append_link else comment_text.strip()[:2000]
     saved_paths: list[Path] = []
     try:
         db.add(project)
@@ -1709,9 +1717,9 @@ def update_publication(publication_id: str, payload: PublicationPatch, db: Sessi
     changes = payload.model_dump(exclude_unset=True)
     now = datetime.now(timezone.utc)
     if "caption" in changes:
-        publication.caption = append_affiliate_link(changes["caption"], publication.affiliate_url)
+        publication.caption = changes["caption"].strip() if publication.media_type == "image" else append_affiliate_link(changes["caption"], publication.affiliate_url)
     if "comment_text" in changes:
-        publication.comment_text = append_affiliate_link(changes["comment_text"], publication.affiliate_url, default_label="🛒 ดูสินค้า")
+        publication.comment_text = changes["comment_text"].strip() if publication.media_type == "image" else append_affiliate_link(changes["comment_text"], publication.affiliate_url, default_label="🛒 ดูสินค้า")
         publication.comment_status = "waiting_for_publish" if publication.comment_text else "not_set"
     if "scheduled_at" in changes:
         scheduled_at = changes["scheduled_at"]

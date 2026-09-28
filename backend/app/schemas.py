@@ -77,7 +77,7 @@ class ProjectPatch(BaseModel):
 
 class ImagePostCopyGenerate(BaseModel):
     product_details: str = Field(default="", max_length=24000)
-    affiliate_url: str = Field(min_length=1, max_length=2048)
+    affiliate_url: str | None = Field(default=None, max_length=2048)
 
     @field_validator("product_details", mode="before")
     @classmethod
@@ -86,7 +86,7 @@ class ImagePostCopyGenerate(BaseModel):
 
     @field_validator("affiliate_url")
     @classmethod
-    def check_affiliate_url(cls, value: str) -> str:
+    def check_affiliate_url(cls, value: str | None) -> str | None:
         return validate_http_url(value)
 
 

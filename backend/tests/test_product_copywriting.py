@@ -167,6 +167,35 @@ def test_retrying_image_post_save_reuses_the_same_draft(product_client):
     assert [post["id"] for post in listed.json()] == [submission_id]
 
 
+def test_image_post_without_affiliate_link_keeps_user_caption_unchanged(product_client):
+    caption = "ชั้นวางเอกสารสำหรับโต๊ะทำงาน\nพิกัด: https://s.shopee.co.th/manual"
+    response = product_client.post(
+        "/api/image-posts", headers=ORIGIN,
+        files={"image_files": ("shelf.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+        data={"caption": caption, "comment_text": "", "auto_append_link": "false"},
+    )
+    assert response.status_code == 201, response.text
+    post = response.json()
+    assert post["caption"] == caption
+    assert post["comment_text"] == ""
+    assert post["affiliate_url"] is None
+
+
+def test_image_post_auto_link_does_not_duplicate_a_manual_link(product_client):
+    link = "https://s.shopee.co.th/example"
+    caption = f"โต๊ะเรียบร้อยขึ้น\nพิกัด: {link}"
+    response = product_client.post(
+        "/api/image-posts", headers=ORIGIN,
+        files={"image_files": ("shelf.png", b"\x89PNG\r\n\x1a\npayload", "image/png")},
+        data={"caption": caption, "comment_text": "", "affiliate_url": link, "auto_append_link": "true"},
+    )
+    assert response.status_code == 201, response.text
+    post = response.json()
+    assert post["caption"] == caption
+    assert post["caption"].count(link) == 1
+    assert post["comment_text"].count(link) == 1
+
+
 def test_editing_image_post_replaces_the_selected_original_file(product_client):
     created = product_client.post(
         "/api/image-posts",
@@ -228,6 +257,20 @@ def test_image_copy_generation_sends_only_product_text_to_ai(product_client, mon
         "comment_text": "🛒 ชอบแล้วกดไปส่องสีที่ใช่เลย\n\n👉 กดสั่ง/ดูรายละเอียด: https://s.shopee.co.th/copy-link",
         "model_name": "gemini-test",
     }
+
+
+def test_image_copy_generation_works_without_link(product_client, monkeypatch):
+    monkeypatch.setattr(
+        main_module, "get_gemini_json",
+        lambda **_kwargs: ({"caption": "ชั้นวางเอกสารช่วยจัดโต๊ะ", "comment_text": "ลองดูรายละเอียดสินค้า"}, "gemini-test"),
+    )
+    response = product_client.post(
+        "/api/image-posts/generate-copy", headers=ORIGIN,
+        data={"product_details": "ชั้นวางเอกสาร", "auto_append_link": "false"},
+    )
+    assert response.status_code == 200, response.text
+    assert "https://" not in response.json()["caption"]
+    assert "https://" not in response.json()["comment_text"]
 
 
 def test_image_copy_generation_uses_attached_image_when_details_empty(product_client, monkeypatch):
