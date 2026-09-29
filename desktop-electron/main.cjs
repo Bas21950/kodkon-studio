@@ -37,9 +37,10 @@ async function backendAvailable() {
 
 async function registerBackgroundTask() {
   if (process.platform !== 'win32' || !app.isPackaged) return;
-  const taskCommand = `"${app.getPath('exe')}" --background`;
   try {
-    await execFileAsync('schtasks.exe', ['/Create', '/SC', 'ONLOGON', '/TN', 'KodKon Studio Background', '/TR', taskCommand, '/F'], { windowsHide: true });
+    const options = { openAtLogin: true, path: app.getPath('exe'), args: ['--background'] };
+    app.setLoginItemSettings(options);
+    if (!app.getLoginItemSettings(options).openAtLogin) throw new Error('Windows ไม่ยืนยันการเริ่มทำงานหลังเข้าสู่ระบบ');
   } catch (error) {
     dialog.showMessageBox({ type: 'warning', title: 'ตั้งเวลาโพสต์', message: 'ลงทะเบียนการทำงานหลังเข้าสู่ Windows ไม่สำเร็จ', detail: String(error.message || error) });
   }
