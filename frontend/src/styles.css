@@ -309,7 +309,7 @@ h1 { margin: 7px 0 5px; color: #242638; font-size: 26px; font-weight: 600; line-
 .insights-post-copy h2 { margin: 3px 0 4px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .insights-post-copy p { display: -webkit-box; margin: 0 0 4px; overflow: hidden; color: var(--muted); font-size: 12px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .insights-post-copy small { color: var(--muted); font-size: 11px; }
-.insights-fetch { white-space: nowrap; }
+.insights-fetching { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .insights-metrics { display: grid; grid-template-columns: repeat(7, minmax(70px, 1fr)); gap: 8px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line); }
 .insights-metric { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .insights-metric span { color: var(--muted); font-size: 11px; }

@@ -1366,34 +1366,74 @@ function formatDateTime(value: string): string {
 function InsightsPage() {
   const [posts, setPosts] = useState<Publication[]>([]);
   const [insights, setInsights] = useState<Record<string, PublicationInsights['metrics']>>({});
+  const [insightErrors, setInsightErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const autoLoadStarted = useRef(false);
+  const reloadRef = useRef<() => Promise<void>>(async () => {});
 
-  const loadPosts = async () => {
-    setLoading(true); setError('');
-    try { setPosts(await api.publications('published')); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'โหลดโพสต์ที่เผยแพร่แล้วไม่สำเร็จ'); }
-    finally { setLoading(false); }
+  const refreshInsights = async (targets: Publication[]) => {
+    if (!targets.length || progress) return;
+    setProgress({ done: 0, total: targets.length });
+    setInsightErrors({}); setError(''); setNotice('');
+    let cursor = 0;
+    let done = 0;
+    let failed = 0;
+    const worker = async () => {
+      while (cursor < targets.length) {
+        const post = targets[cursor++];
+        try {
+          const result = await api.publicationInsights(post.id);
+          setInsights((current) => ({ ...current, [post.id]: result.metrics }));
+          if (result.metrics.metric_errors.length) {
+            setInsightErrors((current) => ({ ...current, [post.id]: result.metrics.metric_errors[0] }));
+            failed += 1;
+          }
+        } catch (reason) {
+          setInsightErrors((current) => ({ ...current, [post.id]: reason instanceof Error ? reason.message : 'ดึงสถิติไม่สำเร็จ' }));
+          failed += 1;
+        } finally {
+          done += 1;
+          setProgress({ done, total: targets.length });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, targets.length) }, () => worker()));
+    setProgress(null);
+    setNotice(failed ? `ดึงสถิติครบ ${done} โพสต์ · ${failed} โพสต์มีข้อมูลบางส่วนที่อ่านไม่ได้` : `ดึงสถิติครบ ${done} โพสต์แล้ว`);
   };
-  useEffect(() => { void loadPosts(); }, []);
 
-  const loadInsights = async (post: Publication) => {
-    setBusyId(post.id); setError(''); setNotice('');
+  const reloadAll = async (includeCachedPosts = true) => {
+    setLoading(!includeCachedPosts || posts.length === 0);
+    setError('');
     try {
-      const result = await api.publicationInsights(post.id);
-      setInsights((current) => ({ ...current, [post.id]: result.metrics }));
-      const gotAny = Object.entries(result.metrics).some(([key, value]) => key !== 'metric_errors' && value !== null);
-      setNotice(gotAny ? `อัปเดตสถิติของ “${post.project_title}” แล้ว` : `Meta ไม่ส่งตัวเลขสถิติของ “${post.project_title}” กลับมา · ดูสาเหตุใต้รายการ`);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'ดึงสถิติโพสต์ไม่สำเร็จ'); }
-    finally { setBusyId(null); }
+      const published = await api.publications('published');
+      setPosts(published);
+      setLoading(false);
+      await refreshInsights(published);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'โหลดโพสต์ที่เผยแพร่แล้วไม่สำเร็จ');
+      setLoading(false);
+    }
   };
+  reloadRef.current = () => reloadAll(true);
+
+  useEffect(() => {
+    if (autoLoadStarted.current) return;
+    autoLoadStarted.current = true;
+    void reloadAll(false);
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => void reloadRef.current(), 30 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const count = (value: number | null | undefined) => value == null ? '—' : new Intl.NumberFormat('th-TH').format(value);
   return <section className="page-content insights-page">
-    <PageTitle eyebrow="Facebook Pages" title="สถิติรายโพสต์" subtitle="ดูยอดเข้าชม การมีส่วนร่วม และปฏิกิริยาของโพสต์ที่เผยแพร่แล้ว" action={<button className="button button-secondary" onClick={() => void loadPosts()} disabled={loading}><LoaderCircle className={loading ? 'spin' : ''} size={15} />รีเฟรชรายการ</button>} />
-    <div className="insights-note"><BarChart3 size={17} /><span>สถิติดึงจาก Facebook โดยตรง · “ปฏิสัมพันธ์” คือผลรวมรีแอ็กชัน ความคิดเห็น และแชร์ · กด “ดึงสถิติ” เพื่อโหลดข้อมูลล่าสุด</span></div>
+    <PageTitle eyebrow="Facebook Pages" title="สถิติรายโพสต์" subtitle="ดูยอดเข้าชม การมีส่วนร่วม และปฏิกิริยาของโพสต์ที่เผยแพร่แล้ว" action={<button className="button button-secondary" onClick={() => void reloadAll(true)} disabled={loading || progress !== null}><LoaderCircle className={progress !== null ? 'spin' : ''} size={15} />{progress ? `กำลังดึง ${progress.done}/${progress.total}` : 'อัปเดตสถิติ'}</button>} />
+    <div className="insights-note"><BarChart3 size={17} /><span>{progress ? `กำลังดึงสถิติจาก Facebook อัตโนมัติ ${progress.done}/${progress.total} โพสต์` : 'เปิดหน้านี้แล้วระบบดึงสถิติให้อัตโนมัติ และรีเฟรชทุก 30 นาทีขณะอยู่หน้านี้ · “ปฏิสัมพันธ์” คือผลรวมรีแอ็กชัน ความคิดเห็น และแชร์'}</span></div>
     {error && <div className="form-error">{error}</div>}{notice && <div className="form-success"><CheckCircle2 size={15} />{notice}</div>}
     {loading ? <div className="loading-panel"><LoaderCircle className="spin" size={19} />กำลังโหลดโพสต์ที่เผยแพร่แล้ว</div> : posts.length === 0 ? (
       <div className="posts-empty content-panel"><div className="roadmap-icon"><BarChart3 size={24} /></div><h2>ยังไม่มีโพสต์ให้ดูสถิติ</h2><p>เมื่อเผยแพร่โพสต์บน Facebook สำเร็จแล้ว รายการจะแสดงที่หน้านี้</p></div>
@@ -1410,9 +1450,10 @@ function InsightsPage() {
         <div className="insights-post-main">
           <div className="insights-thumbnail">{thumbnail ? <img src={`${assetFileUrl(thumbnail.id)}?v=${encodeURIComponent(post.updated_at)}`} alt="" /> : <ImageIcon size={22} />}</div>
           <div className="insights-post-copy"><span className="panel-kicker">{post.media_type === 'image' ? 'โพสต์ภาพ' : 'วิดีโอ/Reel'} · {post.page_name ?? 'Facebook'}</span><h2>{post.project_title}</h2><p>{post.caption}</p><small>เผยแพร่ {post.published_at ? formatDateTime(post.published_at) : '—'}</small></div>
-          <button className="button button-secondary small insights-fetch" onClick={() => void loadInsights(post)} disabled={busyId !== null}>{busyId === post.id ? <LoaderCircle className="spin" size={15} /> : <BarChart3 size={15} />}{busyId === post.id ? 'กำลังดึง…' : 'ดึงสถิติ'}</button>
+          {progress !== null && !insights[post.id] && !insightErrors[post.id] && <span className="insights-fetching"><LoaderCircle className="spin" size={14} />กำลังดึงสถิติ</span>}
         </div>
-        {data && <><div className="insights-metrics">{metrics.map(([label, value]) => <div className="insights-metric" key={label}><span>{label}</span><strong>{count(value)}</strong></div>)}</div>{data.metric_errors.length > 0 && <p className="insights-disclaimer">บางตัวชี้วัดอาจไม่พร้อมใช้งานหรือ Meta ไม่อนุญาตให้แอปอ่าน · {data.metric_errors[0]}</p>}</>}
+        {data && <div className="insights-metrics">{metrics.map(([label, value]) => <div className="insights-metric" key={label}><span>{label}</span><strong>{count(value)}</strong></div>)}</div>}
+        {insightErrors[post.id] && <p className="insights-disclaimer">ดึงข้อมูลได้บางส่วนหรือไม่สำเร็จ · {insightErrors[post.id]}</p>}
       </article>;
     })}</div>}
   </section>;
