@@ -1,0 +1,34 @@
+{
+  "name": "kodkon-studio-desktop",
+  "productName": "กดก่อนคิดทีหลัง Studio",
+  "version": "0.5.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "th.kodkon.studio",
+    "productName": "กดก่อนคิดทีหลัง Studio",
+    "files": ["main.cjs", "preload.cjs", "package.json"],
+    "extraResources": [
+      { "from": "../backend", "to": "backend", "filter": ["app/**", "alembic/**", "alembic.ini", "requirements.txt", "!**/__pycache__/**", "!**/*.pyc"] },
+      { "from": "../frontend/dist", "to": "frontend/dist" },
+      { "from": "../release/backend-bundle/kodkon-backend", "to": "kodkon-backend" },
+      { "from": "../frontend/public/kodkon-studio.ico", "to": "kodkon-studio.ico" }
+    ],
+    "win": { "target": ["nsis"], "icon": "../frontend/public/kodkon-studio.ico", "executableName": "KodKonStudio" },
+    "artifactName": "KodKonStudio-Electron-Setup-${version}.${ext}",
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "กดก่อนคิดทีหลัง Studio Electron" },
+    "publish": [{ "provider": "github", "owner": "Bas21950", "repo": "kodkon-studio" }],
+    "directories": { "output": "../release/electron" }
+  }
+}

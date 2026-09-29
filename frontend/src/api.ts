@@ -34,7 +34,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   capabilities: () => request<Capabilities>('/api/capabilities'),
-  checkApplicationUpdates: () => request<ApplicationUpdate>('/api/updates'),
+  checkApplicationUpdates: async () => {
+    if (window.kodkonDesktop) {
+      const result = await window.kodkonDesktop.checkForUpdates();
+      return {
+        current_version: result.currentVersion,
+        latest_version: result.version ?? null,
+        update_available: result.available,
+        installable: result.available,
+        release_url: 'https://github.com/Bas21950/kodkon-studio/releases',
+        published_at: null,
+        notes: result.notes ?? '',
+      } satisfies ApplicationUpdate;
+    }
+    return request<ApplicationUpdate>('/api/updates');
+  },
   applicationUpdateSession: () => request<ApplicationUpdateProgress | null>('/api/updates/session'),
   installApplicationUpdate: (version: string) => request<Omit<ApplicationUpdateProgress, 'progress'>>('/api/updates/install', { method: 'POST', body: JSON.stringify({ version }) }),
   applicationUpdateProgress: (id: string) => request<ApplicationUpdateProgress>(`/api/updates/progress/${encodeURIComponent(id)}`),

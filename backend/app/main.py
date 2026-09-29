@@ -81,8 +81,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("kodkon.api")
 HANGUL_RUN = re.compile(r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]+")
 
-BACKEND_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = BACKEND_ROOT.parent
+BACKEND_ROOT = Path(os.environ.get("KODKON_BACKEND_ROOT", Path(__file__).resolve().parents[1]))
+PROJECT_ROOT = Path(os.environ.get("KODKON_RESOURCE_ROOT", BACKEND_ROOT.parent))
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 CHUNK_SIZE = 1024 * 1024
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".mkv", ".webm"}
@@ -94,6 +94,8 @@ LOCAL_ORIGINS = {
     "http://127.0.0.1:8765",
     "http://localhost:8765",
 }
+if os.environ.get("KODKON_PORT", "").isdigit():
+    LOCAL_ORIGINS.update({f"http://127.0.0.1:{os.environ['KODKON_PORT']}", f"http://localhost:{os.environ['KODKON_PORT']}"})
 
 
 def get_db():

@@ -77,6 +77,31 @@ jobs:
           npm ci
           npm run build
 
+      - name: Bundle Python backend for Electron
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pyinstaller==6.17.0
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller installation failed' }
+          python -m PyInstaller --noconfirm --clean --onedir --name kodkon-backend --distpath release/backend-bundle --workpath release/backend-work --specpath release/backend-spec --collect-all alembic --collect-all sqlalchemy --collect-all uvicorn backend/app/server.py
+          if ($LASTEXITCODE -ne 0) { throw 'Backend bundle failed' }
+          if (-not (Test-Path release/backend-bundle/kodkon-backend/kodkon-backend.exe)) { throw 'Backend EXE was not created' }
+          python scripts/smoke-electron-backend.py
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged backend health check failed' }
+
+      - name: Build Electron installer and update metadata
+        working-directory: desktop-electron
+        shell: pwsh
+        run: |
+          $config = Get-Content ../backend/app/config.py -Raw
+          $version = [regex]::Match($config, 'app_version:\s*str\s*=\s*"([^"]+)"').Groups[1].Value
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -ne $packageVersion -or $env:GITHUB_REF_NAME -ne "v$version") { throw 'Release tag, backend and Electron versions must match' }
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'Electron dependency installation failed' }
+          npm run dist:win -- --publish never
+          if ($LASTEXITCODE -ne 0) { throw 'Electron installer build failed' }
+          if (-not (Test-Path ../release/electron/latest.yml)) { throw 'Electron update metadata was not created' }
+
       - name: Package and checksum
         shell: pwsh
         run: |
@@ -131,4 +156,7 @@ jobs:
           Set-Content -LiteralPath $notesPath -Value $notes -Encoding utf8
           $package = "release/kodkon-studio-$version-windows-portable.zip"
           $installer = "release/kodkon-studio-$version-windows-setup.exe"
-          gh release create $env:GITHUB_REF_NAME $installer "$installer.sha256" $package "$package.sha256" --title "กดก่อนคิดทีหลัง Studio v$version" --notes-file $notesPath
+          $electronInstaller = "release/electron/KodKonStudio-Electron-Setup-$version.exe"
+          $electronBlockmap = "$electronInstaller.blockmap"
+          if (-not (Test-Path $electronInstaller)) { throw 'Electron installer was not created' }
+          gh release create $env:GITHUB_REF_NAME $installer "$installer.sha256" $package "$package.sha256" $electronInstaller $electronBlockmap release/electron/latest.yml --title "กดก่อนคิดทีหลัง Studio v$version" --notes-file $notesPath

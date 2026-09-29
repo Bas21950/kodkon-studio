@@ -104,8 +104,11 @@ function App() {
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [updateNotice, setUpdateNotice] = useState<ApplicationUpdate | null>(null);
+  const [desktopUpdateStatus, setDesktopUpdateStatus] = useState<KodkonDesktopStatus | null>(null);
   const [updateProgress, setUpdateProgress] = useState<UpdateUiProgress | null>(null);
   const updateDialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => window.kodkonDesktop?.onUpdateStatus(setDesktopUpdateStatus), []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -160,6 +163,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (window.kodkonDesktop) return;
     const stored = window.localStorage.getItem('kodkon-active-update');
     if (stored) {
       try {
@@ -247,6 +251,11 @@ function App() {
   }, [updateProgress?.status]);
 
   const startApplicationUpdate = async (release: ApplicationUpdate) => {
+    if (window.kodkonDesktop) {
+      setDesktopUpdateStatus({ status: 'downloading', progress: 0, message: 'กำลังดาวน์โหลดอัปเดต · ใช้โปรแกรมต่อได้' });
+      void window.kodkonDesktop.downloadUpdate().catch((reason) => setDesktopUpdateStatus({ status: 'failed', message: reason instanceof Error ? reason.message : 'ดาวน์โหลดไม่สำเร็จ' }));
+      return;
+    }
     if (!release.latest_version || !release.installable || updateProgress) return;
     const startedAt = Date.now();
     setUpdateProgress({
@@ -406,8 +415,8 @@ function App() {
 
         {error && <div className="global-error" role="alert"><CircleHelp size={17} />{error}<button onClick={() => setError('')} aria-label="ปิดข้อความ"><X size={16} /></button></div>}
         {updateNotice && !updateProgress && <div className="update-notice-banner" role="status">
-          <div className="update-notice-copy"><Download size={17} /><span><strong>มีอัปเดต v{updateNotice.latest_version}</strong><small>กดดูรายการเปลี่ยนแปลงหรืออัปเดตเมื่อพร้อม</small></span></div>
-          <div className="update-notice-actions"><button className="button button-secondary small" onClick={() => setPage('settings')}>รายละเอียด</button><button className="button button-primary small" onClick={() => void startApplicationUpdate(updateNotice)}>อัปเดต</button></div>
+          <div className="update-notice-copy"><Download size={17} /><span><strong>มีอัปเดต v{updateNotice.latest_version}</strong><small>{desktopUpdateStatus?.message ?? 'กดดูรายการเปลี่ยนแปลงหรือดาวน์โหลดเมื่อพร้อม'}</small></span></div>
+          <div className="update-notice-actions"><button className="button button-secondary small" onClick={() => setPage('settings')}>รายละเอียด</button>{desktopUpdateStatus?.status === 'ready' ? <button className="button button-primary small" onClick={() => { if (window.confirm('บันทึกงานที่ยังค้างอยู่แล้วหรือยัง? โปรแกรมจะปิดและเปิดใหม่เพื่อติดตั้งอัปเดต')) void window.kodkonDesktop?.installUpdate(); }}>รีสตาร์ตเพื่อติดตั้ง</button> : <button className="button button-primary small" disabled={desktopUpdateStatus?.status === 'downloading'} onClick={() => void startApplicationUpdate(updateNotice)}>{desktopUpdateStatus?.status === 'downloading' ? `${desktopUpdateStatus.progress ?? 0}%` : window.kodkonDesktop ? 'ดาวน์โหลด' : 'อัปเดต'}</button>}</div>
         </div>}
 
         {selectedProject ? selectedProject.assets.some((asset) => asset.kind === 'post_image') && !selectedProject.assets.some((asset) => asset.kind === 'source_video') ? (
@@ -459,7 +468,7 @@ function App() {
           <SettingsPage
             capabilities={capabilities}
             discoveredUpdate={updateNotice}
-            updateInProgress={Boolean(updateProgress)}
+            updateInProgress={Boolean(updateProgress) || desktopUpdateStatus?.status === 'downloading' || desktopUpdateStatus?.status === 'ready'}
             onUpdateFound={setUpdateNotice}
             onInstallUpdate={(release) => void startApplicationUpdate(release)}
           />
