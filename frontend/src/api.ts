@@ -1,4 +1,4 @@
-import type { AISettings, AIUsage, ApplicationUpdate, ApplicationUpdateProgress, Capabilities, EditorRevision, FacebookPage, FacebookSettings, GeneratedCopy, ImagePostCopy, MusicTrack, OverlayRegion, Project, Publication, SubtitleSegment } from './types';
+import type { AISettings, AIUsage, ApplicationUpdate, ApplicationUpdateProgress, Capabilities, EditorRevision, FacebookPage, FacebookSettings, GeneratedCopy, ImagePostCopy, MusicTrack, OverlayRegion, Project, Publication, PublicationInsights, SubtitleSegment } from './types';
 
 export class ApiError extends Error {
   status: number;
@@ -112,6 +112,7 @@ export const api = {
     return request<Publication>('/api/image-posts', { method: 'POST', body });
   },
   publications: (status = '') => request<Publication[]>(`/api/publications${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  publicationInsights: (id: string) => request<PublicationInsights>(`/api/publications/${encodeURIComponent(id)}/insights`),
   publication: (id: string) => request<Publication>(`/api/publications/${encodeURIComponent(id)}`),
   replacePublicationImage: (publicationId: string, assetId: string, file: File) => {
     const body = new FormData();

@@ -70,7 +70,7 @@ from app.services.ai_settings import ALLOWED_MODELS, get_model, set_model
 from app.services.gemini import GeminiError, generate_json
 from app.services.ai_cache import get_gemini_json
 from app.services.ai_jobs import IMAGE_POST_COPY_SCHEMA, image_post_copy_prompt
-from app.services.facebook import API_VERSION, FacebookApiError, MAX_POST_IMAGES, photo_preflight, photo_set_preflight, reels_preflight, verify_page
+from app.services.facebook import API_VERSION, FacebookApiError, MAX_POST_IMAGES, get_post_insights, photo_preflight, photo_set_preflight, reels_preflight, verify_page
 from app.services.publication_media import publication_media_asset_ids
 from app.services.secret_store import SecretStoreError, delete_facebook_page_token, delete_gemini_key, load_facebook_page_token, load_gemini_key, save_facebook_page_token, save_gemini_key
 from app.services.probing import MediaProbeError, find_ffmpeg, find_ffprobe, probe_audio
@@ -1454,6 +1454,25 @@ def list_publications(
     if project_id:
         statement = statement.where(Publication.project_id == project_id)
     return [publication_payload(item, db) for item in db.scalars(statement).all()]
+
+
+@app.get("/api/publications/{publication_id}/insights")
+def publication_insights(publication_id: str, db: Session = Depends(get_db)):
+    publication = db.get(Publication, publication_id)
+    if publication is None:
+        raise HTTPException(status_code=404, detail="ไม่พบรายการโพสต์นี้")
+    if publication.status != "published" or not publication.external_post_id:
+        raise HTTPException(status_code=409, detail="สถิติจะดูได้หลัง Facebook ยืนยันว่าโพสต์เผยแพร่แล้ว")
+    if not publication.page_id:
+        raise HTTPException(status_code=409, detail="ไม่พบ Facebook Page ที่ใช้เผยแพร่โพสต์นี้")
+    token = load_facebook_page_token(publication.page_id)
+    if not token:
+        raise HTTPException(status_code=409, detail="ไม่พบ Page Access Token ของเพจนี้ · เชื่อมเพจใหม่ในตั้งค่า")
+    try:
+        metrics = get_post_insights(publication.external_post_id, token)
+    except FacebookApiError as exc:
+        raise HTTPException(status_code=502, detail=exc.user_message) from exc
+    return {"publication_id": publication.id, "post_id": publication.external_post_id, "metrics": metrics}
 
 
 @app.get("/api/publications/{publication_id}", response_model=PublicationRead)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import {
   ArrowLeft,
   ArrowUpRight,
+  BarChart3,
   AudioLines,
   Check,
   CheckCircle2,
@@ -39,9 +40,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api, assetFileUrl, ApiError, musicTrackFileUrl } from './api';
-import type { ApplicationUpdate, ApplicationUpdateProgress, Asset, Capabilities, EditorRevision, GeneratedCopy, Job, MusicTrack, OverlayRegion, Project, Publication, Render, SubtitleSegment } from './types';
+import type { ApplicationUpdate, ApplicationUpdateProgress, Asset, Capabilities, EditorRevision, GeneratedCopy, Job, MusicTrack, OverlayRegion, Project, Publication, PublicationInsights, Render, SubtitleSegment } from './types';
 
-type Page = 'overview' | 'create' | 'projects' | 'image-posts' | 'posts' | 'settings';
+type Page = 'overview' | 'create' | 'projects' | 'image-posts' | 'posts' | 'insights' | 'settings';
 type UpdateUiProgress = Omit<ApplicationUpdateProgress, 'update_id'> & {
   update_id: string | null;
   started_at: number;
@@ -51,6 +52,7 @@ const navItems: { id: Page; label: string; icon: LucideIcon; soon?: boolean }[] 
   { id: 'overview', label: 'ศูนย์ควบคุม', icon: LayoutDashboard },
   { id: 'create', label: 'สร้างคอนเทนต์', icon: Sparkles },
   { id: 'posts', label: 'คิวโพสต์', icon: Clapperboard },
+  { id: 'insights', label: 'สถิติ', icon: BarChart3 },
 ];
 
 function formatBytes(bytes: number): string {
@@ -464,6 +466,8 @@ function App() {
           <ImagePostPage onSaved={() => { setSelectedId(null); setPage('posts'); void loadProjects(''); }} />
         ) : page === 'posts' ? (
           <PostsPage onCreateImagePost={() => openNav('create')} />
+        ) : page === 'insights' ? (
+          <InsightsPage />
         ) : (
           <SettingsPage
             capabilities={capabilities}
@@ -1357,6 +1361,61 @@ function localDateTimeInput(value: string | null): string {
 
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value));
+}
+
+function InsightsPage() {
+  const [posts, setPosts] = useState<Publication[]>([]);
+  const [insights, setInsights] = useState<Record<string, PublicationInsights['metrics']>>({});
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const loadPosts = async () => {
+    setLoading(true); setError('');
+    try { setPosts(await api.publications('published')); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'โหลดโพสต์ที่เผยแพร่แล้วไม่สำเร็จ'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void loadPosts(); }, []);
+
+  const loadInsights = async (post: Publication) => {
+    setBusyId(post.id); setError(''); setNotice('');
+    try {
+      const result = await api.publicationInsights(post.id);
+      setInsights((current) => ({ ...current, [post.id]: result.metrics }));
+      const gotAny = Object.entries(result.metrics).some(([key, value]) => key !== 'metric_errors' && value !== null);
+      setNotice(gotAny ? `อัปเดตสถิติของ “${post.project_title}” แล้ว` : `Meta ไม่ส่งตัวเลขสถิติของ “${post.project_title}” กลับมา · ดูสาเหตุใต้รายการ`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'ดึงสถิติโพสต์ไม่สำเร็จ'); }
+    finally { setBusyId(null); }
+  };
+
+  const count = (value: number | null | undefined) => value == null ? '—' : new Intl.NumberFormat('th-TH').format(value);
+  return <section className="page-content insights-page">
+    <PageTitle eyebrow="Facebook Pages" title="สถิติรายโพสต์" subtitle="ดูยอดเข้าชม การมีส่วนร่วม และปฏิกิริยาของโพสต์ที่เผยแพร่แล้ว" action={<button className="button button-secondary" onClick={() => void loadPosts()} disabled={loading}><LoaderCircle className={loading ? 'spin' : ''} size={15} />รีเฟรชรายการ</button>} />
+    <div className="insights-note"><BarChart3 size={17} /><span>สถิติดึงจาก Facebook โดยตรง · “ปฏิสัมพันธ์” คือผลรวมรีแอ็กชัน ความคิดเห็น และแชร์ · กด “ดึงสถิติ” เพื่อโหลดข้อมูลล่าสุด</span></div>
+    {error && <div className="form-error">{error}</div>}{notice && <div className="form-success"><CheckCircle2 size={15} />{notice}</div>}
+    {loading ? <div className="loading-panel"><LoaderCircle className="spin" size={19} />กำลังโหลดโพสต์ที่เผยแพร่แล้ว</div> : posts.length === 0 ? (
+      <div className="posts-empty content-panel"><div className="roadmap-icon"><BarChart3 size={24} /></div><h2>ยังไม่มีโพสต์ให้ดูสถิติ</h2><p>เมื่อเผยแพร่โพสต์บน Facebook สำเร็จแล้ว รายการจะแสดงที่หน้านี้</p></div>
+    ) : <div className="insights-list">{posts.map((post) => {
+      const data = insights[post.id];
+      const thumbnail = post.media_assets[0] ?? post.render_asset;
+      const interactions = data && data.reactions !== null && data.comments !== null && data.shares !== null
+        ? data.reactions + data.comments + data.shares : null;
+      const metrics: Array<[string, number | null | undefined]> = [
+        ['ยอดดู', data?.views], ['ผู้ชมไม่ซ้ำ', data?.viewers], ['ปฏิสัมพันธ์*', interactions],
+        ['คลิก', data?.clicks], ['รีแอ็กชัน', data?.reactions], ['ความคิดเห็น', data?.comments], ['แชร์', data?.shares],
+      ];
+      return <article className="insights-post content-panel" key={post.id}>
+        <div className="insights-post-main">
+          <div className="insights-thumbnail">{thumbnail ? <img src={`${assetFileUrl(thumbnail.id)}?v=${encodeURIComponent(post.updated_at)}`} alt="" /> : <ImageIcon size={22} />}</div>
+          <div className="insights-post-copy"><span className="panel-kicker">{post.media_type === 'image' ? 'โพสต์ภาพ' : 'วิดีโอ/Reel'} · {post.page_name ?? 'Facebook'}</span><h2>{post.project_title}</h2><p>{post.caption}</p><small>เผยแพร่ {post.published_at ? formatDateTime(post.published_at) : '—'}</small></div>
+          <button className="button button-secondary small insights-fetch" onClick={() => void loadInsights(post)} disabled={busyId !== null}>{busyId === post.id ? <LoaderCircle className="spin" size={15} /> : <BarChart3 size={15} />}{busyId === post.id ? 'กำลังดึง…' : 'ดึงสถิติ'}</button>
+        </div>
+        {data && <><div className="insights-metrics">{metrics.map(([label, value]) => <div className="insights-metric" key={label}><span>{label}</span><strong>{count(value)}</strong></div>)}</div>{data.metric_errors.length > 0 && <p className="insights-disclaimer">บางตัวชี้วัดอาจไม่พร้อมใช้งานหรือ Meta ไม่อนุญาตให้แอปอ่าน · {data.metric_errors[0]}</p>}</>}
+      </article>;
+    })}</div>}
+  </section>;
 }
 
 function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {

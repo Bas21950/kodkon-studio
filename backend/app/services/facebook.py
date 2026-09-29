@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -103,6 +104,48 @@ def verify_page(page_id: str, access_token: str) -> dict:
             "token นี้เป็น User Access Token · กรุณาใช้ Page Access Token ของเพจเดียวกันจาก /me/accounts",
         )
     return {"id": page_id, "name": str(payload["name"])}
+
+
+def get_post_insights(post_id: str, access_token: str) -> dict:
+    """Read supported lifetime metrics independently so one retired metric cannot hide the rest."""
+    metric_names = {
+        "views": ("post_media_view",),
+        "viewers": ("post_total_media_view_unique",),
+        "clicks": ("post_clicks",),
+    }
+    result: dict[str, Any] = {key: None for key in metric_names}
+    errors: list[str] = []
+    for key, candidates in metric_names.items():
+        for metric in candidates:
+            try:
+                payload = _request("GET", f"{GRAPH_ROOT}/{post_id}/insights", access_token,
+                                   params={"metric": metric, "period": "lifetime"})
+            except FacebookApiError as exc:
+                errors.append(exc.user_message)
+                continue
+            rows = payload.get("data", [])
+            if rows and isinstance(rows[0], dict):
+                values = rows[0].get("values", [])
+                if values and isinstance(values[0], dict):
+                    value = values[0].get("value")
+                    if isinstance(value, (int, float)):
+                        result[key] = int(value)
+                        break
+
+    try:
+        post = _request("GET", f"{GRAPH_ROOT}/{post_id}", access_token,
+                        params={"fields": "reactions.summary(true),comments.summary(true),shares"})
+        for key, path in (("reactions", "reactions"), ("comments", "comments")):
+            summary = post.get(path, {}).get("summary", {}) if isinstance(post.get(path), dict) else {}
+            count = summary.get("total_count")
+            result[key] = int(count) if isinstance(count, (int, float)) else None
+        shares = post.get("shares", {}).get("count") if isinstance(post.get("shares"), dict) else None
+        result["shares"] = int(shares) if isinstance(shares, (int, float)) else 0
+    except FacebookApiError as exc:
+        errors.append(exc.user_message)
+        result.update({"reactions": None, "comments": None, "shares": None})
+    result["metric_errors"] = list(dict.fromkeys(errors))
+    return result
 
 
 def start_reel(page_id: str, access_token: str) -> tuple[str, str]:

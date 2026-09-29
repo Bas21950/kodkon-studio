@@ -40,3 +40,35 @@ def test_photo_set_preflight_checks_count_size_and_aggregate():
     assert facebook.photo_set_preflight([valid] * 7) is not None
     oversized = SimpleNamespace(original_name="photo.jpg", byte_size=20 * 1024 * 1024)
     assert facebook.photo_set_preflight([oversized, oversized]) is not None
+
+
+def test_get_post_insights_reads_metrics_and_engagement_counts(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, token, **kwargs):
+        calls.append((url, kwargs.get("params", {})))
+        params = kwargs.get("params", {})
+        if url.endswith("/insights"):
+            metric = params["metric"]
+            return {"data": [{"values": [{"value": {"post_media_view": 120, "post_total_media_view_unique": 95,
+                                                        "post_clicks": 7}[metric]}]}]}
+        return {
+            "reactions": {"summary": {"total_count": 12}},
+            "comments": {"summary": {"total_count": 3}},
+            "shares": {"count": 2},
+        }
+
+    monkeypatch.setattr(facebook, "_request", fake_request)
+
+    metrics = facebook.get_post_insights("page_123", "secret")
+
+    assert metrics == {
+        "views": 120,
+        "viewers": 95,
+        "clicks": 7,
+        "reactions": 12,
+        "comments": 3,
+        "shares": 2,
+        "metric_errors": [],
+    }
+    assert len(calls) == 4

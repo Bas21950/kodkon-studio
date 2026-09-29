@@ -190,6 +190,20 @@ export interface Publication {
   events: PublicationEvent[];
 }
 
+export interface PublicationInsights {
+  publication_id: string;
+  post_id: string;
+  metrics: {
+    views: number | null;
+    viewers: number | null;
+    clicks: number | null;
+    reactions: number | null;
+    comments: number | null;
+    shares: number | null;
+    metric_errors: string[];
+  };
+}
+
 export interface FacebookPage {
   id: string;
   name: string;
