@@ -1,7 +1,7 @@
 {
   "name": "kodkon-studio-desktop",
   "productName": "กดก่อนคิดทีหลัง Studio",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "main": "main.cjs",
   "scripts": {

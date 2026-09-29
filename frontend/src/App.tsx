@@ -1352,12 +1352,11 @@ function localDateTimeInput(value: string | null): string {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date).replace(' ', 'T');
 }
 
 function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+  return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value));
 }
 
 function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
@@ -1410,10 +1409,10 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
     if (!selected) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      const scheduled_at = scheduledLocal ? new Date(scheduledLocal).toISOString() : null;
+      const scheduled_at = scheduledLocal ? new Date(`${scheduledLocal}:00+07:00`).toISOString() : null;
       const updated = await api.updatePublication(selected.id, { caption, comment_text: comment, scheduled_at });
       setPosts((items) => items.map((item) => item.id === updated.id ? updated : item));
-      setNotice(updated.status === 'scheduled' ? (facebookReady ? 'บันทึกเวลาแล้ว · worker จะเผยแพร่เมื่อถึงกำหนดขณะโปรแกรมเปิดอยู่' : 'บันทึกเวลาแล้ว · เชื่อม Facebook Page ก่อนถึงกำหนดเพื่อให้เผยแพร่อัตโนมัติ') : 'บันทึกดราฟต์แล้ว');
+      setNotice(updated.status === 'scheduled' ? (facebookReady ? 'บันทึกเวลาไทยแล้ว · ระบบจะโพสต์เมื่อถึงกำหนด แม้ปิดหน้าต่างโปรแกรม' : 'บันทึกเวลาแล้ว · เชื่อม Facebook Page ก่อนถึงกำหนดเพื่อให้เผยแพร่อัตโนมัติ') : 'บันทึกดราฟต์แล้ว');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'บันทึกรายการไม่สำเร็จ'); }
     finally { setBusy(false); }
   };
@@ -1529,8 +1528,8 @@ function PostsPage({ onCreateImagePost }: { onCreateImagePost: () => void }) {
                 </div>}
                 <label className="form-label">แคปชั่น<textarea rows={4} value={caption} onChange={(event) => setCaption(event.target.value)} /></label>
                 <label className="form-label">คอมเมนต์ที่จะลงหลังโพสต์<textarea rows={3} value={comment} onChange={(event) => setComment(event.target.value)} /></label>
-                <label className="form-label schedule-input">ตั้งเวลาโพสต์ <span className="optional-label">เว้นว่างเพื่อเก็บเป็นดราฟต์</span><input type="datetime-local" value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></label>
-                <div className="publication-actions"><span>{facebookReady ? `ตั้งเวลาแล้ว worker จะส่ง${post.media_type === 'image' ? 'ภาพ' : 'Reel'}เมื่อถึงกำหนดและโปรแกรมเปิดอยู่` : 'เชื่อม Facebook Page ในหน้าตั้งค่าก่อนโพสต์อัตโนมัติ'}</span><div>{post.status !== 'needs_attention' && <button className="button button-secondary small" onClick={() => void cancel()} disabled={busy}>ยกเลิกรายการ</button>}{facebookReady && <button className="button button-secondary small" onClick={() => void sendNow(post)} disabled={busy}><Send size={13} />โพสต์ทันที</button>}<button className="button button-primary small" onClick={() => void save()} disabled={busy || !caption.trim()}><Save size={14} />{busy ? 'กำลังบันทึก…' : scheduledLocal ? 'บันทึกเวลา' : 'บันทึกดราฟต์'}</button></div></div>
+                <label className="form-label schedule-input">ตั้งเวลาโพสต์ (เวลาไทย 24 ชม.) <span className="optional-label">เว้นว่างเพื่อเก็บเป็นดราฟต์</span><input type="datetime-local" lang="th-TH" value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></label>
+                <div className="publication-actions"><span>{facebookReady ? `ระบบจะส่ง${post.media_type === 'image' ? 'ภาพ' : 'Reel'}ตามเวลาไทย แม้ปิดหน้าต่างโปรแกรม · เครื่องต้องเปิดและต่ออินเทอร์เน็ต` : 'เชื่อม Facebook Page ในหน้าตั้งค่าก่อนโพสต์อัตโนมัติ'}</span><div>{post.status !== 'needs_attention' && <button className="button button-secondary small" onClick={() => void cancel()} disabled={busy}>ยกเลิกรายการ</button>}{facebookReady && <button className="button button-secondary small" onClick={() => void sendNow(post)} disabled={busy}><Send size={13} />โพสต์ทันที</button>}<button className="button button-primary small" onClick={() => void save()} disabled={busy || !caption.trim()}><Save size={14} />{busy ? 'กำลังบันทึก…' : scheduledLocal ? 'บันทึกเวลา' : 'บันทึกดราฟต์'}</button></div></div>
               </> : <>
                 <div className="publication-copy-preview"><strong>แคปชั่น</strong><p>{post.caption}</p><strong>คอมเมนต์</strong><p>{post.comment_text || 'ไม่ได้ตั้งคอมเมนต์'}</p></div>
                 {post.status === 'published' && post.comment_status === 'failed' && <div className="publication-actions"><span>Meta ปฏิเสธคอมเมนต์ครั้งก่อน ลองอีกครั้งได้หลังตรวจสิทธิ์เพจ</span><button className="button button-secondary small" onClick={() => void retryComment(post)} disabled={busy}><MessageCircle size={13} />ลองคอมเมนต์อีกครั้ง</button></div>}
@@ -1758,7 +1757,7 @@ function SettingsPage({ capabilities, discoveredUpdate, updateInProgress, onUpda
         </div>
         {facebookSettings?.pages.length ? <div className="facebook-page-list">{facebookSettings.pages.map((page) => <div className="facebook-page-row" key={page.id}><div className="facebook-page-avatar">f</div><div className="facebook-page-info"><strong>{page.name}</strong><span>Page ID {page.id} · {page.token_configured ? 'มี token ที่เข้ารหัสไว้' : 'token หายหรืออ่านไม่ได้'}</span></div>{page.is_active ? <span className="settings-status success"><span className="status-dot" />เพจที่เลือก</span> : <button className="button button-secondary small" onClick={() => void selectPage(page.id)} disabled={facebookBusy}>เลือกเพจ</button>}<button className="text-button" onClick={() => void testPage(page.id)} disabled={facebookBusy}>ทดสอบ</button><button className="text-button ai-delete-key" onClick={() => void disconnectPage(page.id)} disabled={facebookBusy}>ลบการเชื่อม</button></div>)}</div> : <div className="editor-empty-row">ยังไม่มีเพจที่เชื่อมไว้</div>}
         {facebookError && <div className="form-error">{facebookError}</div>}{facebookMessage && <div className="form-success"><CheckCircle2 size={15} />{facebookMessage}</div>}
-        <div className="facebook-note"><Sparkles size={15} /><p>ตั้งเวลาโพสต์จะส่ง Reel อัตโนมัติขณะโปรแกรมและเครื่องเปิดอยู่ หลัง Facebook ยืนยันว่าโพสต์สำเร็จ ระบบจึงส่งคอมเมนต์ลิงก์สินค้า หากผล API ไม่ชัดเจน โปรแกรมจะหยุดและให้ตรวจเพจก่อน เพื่อป้องกันโพสต์หรือคอมเมนต์ซ้ำ</p></div>
+        <div className="facebook-note"><Sparkles size={15} /><p>ตั้งเวลาโพสต์จะส่งอัตโนมัติแม้ปิดหน้าต่างโปรแกรม โดยเครื่องต้องเปิดและต่ออินเทอร์เน็ต หลัง Facebook ยืนยันว่าโพสต์สำเร็จ ระบบจึงส่งคอมเมนต์ลิงก์สินค้า หากผล API ไม่ชัดเจน โปรแกรมจะหยุดและให้ตรวจเพจก่อน เพื่อป้องกันโพสต์หรือคอมเมนต์ซ้ำ</p></div>
       </section>
       <section className="content-panel maintenance-panel">
         <div className="panel-heading compact"><div><span className="panel-kicker">เก็บโปรเจกต์และไฟล์วิดีโอ</span><h2>สำรองและกู้คืนข้อมูล</h2></div><div className="settings-icon mint"><HardDrive size={18} /></div></div>

@@ -13,6 +13,37 @@ let mainWindow;
 let serverProcess;
 let updateInfo;
 let updateReady = false;
+const backendPort = 18765;
+const backgroundMode = process.argv.includes('--background');
+const backendPidPath = () => path.join(app.getPath('userData'), 'backend.pid');
+
+async function stopBackgroundBackend() {
+  if (!fs.existsSync(backendPidPath())) return;
+  const pid = Number(fs.readFileSync(backendPidPath(), 'utf8').trim());
+  if (!Number.isSafeInteger(pid) || pid <= 0) return;
+  try {
+    const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').ExecutablePath`], { windowsHide: true });
+    if (!stdout.toLowerCase().includes('kodkon-backend.exe')) return;
+    process.kill(pid);
+  } catch { /* Backend may already have exited. */ }
+}
+
+async function backendAvailable() {
+  try {
+    const response = await fetch(`http://127.0.0.1:${backendPort}/api/health`, { signal: AbortSignal.timeout(1200) });
+    return response.ok;
+  } catch { return false; }
+}
+
+async function registerBackgroundTask() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  const taskCommand = `"${app.getPath('exe')}" --background`;
+  try {
+    await execFileAsync('schtasks.exe', ['/Create', '/SC', 'ONLOGON', '/TN', 'KodKon Studio Background', '/TR', taskCommand, '/F'], { windowsHide: true });
+  } catch (error) {
+    dialog.showMessageBox({ type: 'warning', title: 'ตั้งเวลาโพสต์', message: 'ลงทะเบียนการทำงานหลังเข้าสู่ Windows ไม่สำเร็จ', detail: String(error.message || error) });
+  }
+}
 
 function resourceRoot() {
   return app.isPackaged ? process.resourcesPath : devRoot;
@@ -101,30 +132,38 @@ async function pythonRuntime(backendRoot) {
 }
 
 async function startBackend() {
+  const url = `http://127.0.0.1:${backendPort}`;
+  if (await backendAvailable()) return url;
   const backendRoot = path.join(resourceRoot(), 'backend');
   const dataFolder = await chooseDataFolder();
   const packagedServer = path.join(resourceRoot(), 'kodkon-backend', 'kodkon-backend.exe');
   const bundled = app.isPackaged && fs.existsSync(packagedServer);
   if (app.isPackaged && !bundled) throw new Error('ตัวติดตั้งไม่มีระบบเบื้องหลัง กรุณาติดตั้งโปรแกรมใหม่');
   const python = bundled ? packagedServer : await pythonRuntime(backendRoot);
-  const port = await getFreePort();
+  const port = app.isPackaged ? backendPort : await getFreePort();
   const log = fs.openSync(path.join(app.getPath('userData'), 'backend.log'), 'a');
   serverProcess = spawn(python, bundled ? [] : ['-m', 'app.server'], {
     cwd: backendRoot,
     windowsHide: true,
+    detached: app.isPackaged,
     env: { ...process.env, KODKON_DATA_DIR: dataFolder, KODKON_PORT: String(port), KODKON_DESKTOP_SHELL: 'electron', KODKON_BACKEND_ROOT: backendRoot, KODKON_RESOURCE_ROOT: resourceRoot() },
     stdio: ['ignore', log, log],
   });
   fs.closeSync(log);
+  if (app.isPackaged) {
+    fs.writeFileSync(backendPidPath(), String(serverProcess.pid), 'utf8');
+    serverProcess.unref();
+  }
   let serverError = null;
   serverProcess.on('error', (error) => { serverError = error; });
-  const url = `http://127.0.0.1:${port}`;
+  const serverUrl = `http://127.0.0.1:${port}`;
   for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (app.isPackaged && await backendAvailable()) return serverUrl;
     if (serverError) throw serverError;
     if (serverProcess.exitCode !== null) throw new Error('ระบบเบื้องหลังเปิดไม่สำเร็จ กรุณาดู backend.log');
     try {
-      const response = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1000) });
-      if (response.ok) return url;
+      const response = await fetch(`${serverUrl}/api/health`, { signal: AbortSignal.timeout(1000) });
+      if (response.ok) return serverUrl;
     } catch { /* Backend still starting. */ }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -179,18 +218,24 @@ ipcMain.handle('updates:download', async () => {
   await autoUpdater.downloadUpdate();
   return true;
 });
-ipcMain.handle('updates:install', () => {
+ipcMain.handle('updates:install', async () => {
   if (!updateReady) throw new Error('ยังดาวน์โหลดอัปเดตไม่ครบ');
+  await stopBackgroundBackend();
   autoUpdater.quitAndInstall();
 });
 
-if (!app.requestSingleInstanceLock()) app.quit();
+if (backgroundMode) {
+  app.whenReady().then(async () => {
+    if (knownDataFolder()) await startBackend();
+    app.quit();
+  }).catch(() => app.quit());
+} else if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
   app.whenReady().then(async () => {
-    try { createWindow(); showApplication(await startBackend()); }
+    try { createWindow(); showApplication(await startBackend()); await registerBackgroundTask(); }
     catch (error) { await dialog.showMessageBox({ type: 'error', title: 'เปิดโปรแกรมไม่สำเร็จ', message: String(error.message || error) }); app.quit(); }
   });
 }
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { if (serverProcess && serverProcess.exitCode === null) serverProcess.kill(); });
+app.on('before-quit', () => { if (!app.isPackaged && serverProcess && serverProcess.exitCode === null) serverProcess.kill(); });

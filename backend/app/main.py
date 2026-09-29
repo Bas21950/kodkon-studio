@@ -1747,7 +1747,8 @@ def update_publication(publication_id: str, payload: PublicationPatch, db: Sessi
                 publication.page_id = page.id
                 publication.page_name = page.name
             publication.last_error = None
-            message = f"ตั้งเวลาไว้ {scheduled_at.astimezone().strftime('%d/%m/%Y %H:%M %Z')} · รอเชื่อม Facebook Page ก่อนเผยแพร่จริง"
+            thai_time = scheduled_at.astimezone(timezone(timedelta(hours=7)))
+            message = f"ตั้งเวลาไว้ {thai_time.strftime('%d/%m/%Y %H:%M')} น. (เวลาไทย) · รอเชื่อม Facebook Page ก่อนเผยแพร่จริง"
             db.add(PublicationEvent(publication_id=publication.id, event_type="scheduled", message=message, created_at=now))
     publication.updated_at = now
     db.commit()
