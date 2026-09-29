@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -17,8 +18,10 @@ EXE = ROOT / "release" / "backend-bundle" / "kodkon-backend" / "kodkon-backend.e
 
 
 def main() -> None:
-    if not EXE.is_file():
-        raise RuntimeError(f"Backend bundle is missing: {EXE}")
+    executable = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else EXE
+    if not executable.is_file():
+        raise RuntimeError(f"Backend bundle is missing: {executable}")
+    resources = executable.parent.parent if executable != EXE else ROOT
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -27,12 +30,12 @@ def main() -> None:
         env.update(
             KODKON_DATA_DIR=data_dir,
             KODKON_PORT=str(port),
-            KODKON_BACKEND_ROOT=str(ROOT / "backend"),
-            KODKON_RESOURCE_ROOT=str(ROOT),
+            KODKON_BACKEND_ROOT=str(resources / "backend"),
+            KODKON_RESOURCE_ROOT=str(resources),
         )
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         process = subprocess.Popen(
-            [str(EXE)], env=env, cwd=ROOT / "backend", creationflags=flags,
+            [str(executable)], env=env, cwd=resources / "backend", creationflags=flags,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
         )
         try:

@@ -100,6 +100,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Electron dependency installation failed' }
           npm run dist:win -- --publish never
           if ($LASTEXITCODE -ne 0) { throw 'Electron installer build failed' }
+          python ../scripts/smoke-electron-backend.py ../release/electron/win-unpacked/resources/kodkon-backend/kodkon-backend.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged Electron backend health check failed' }
           if (-not (Test-Path ../release/electron/latest.yml)) { throw 'Electron update metadata was not created' }
 
       - name: Package and checksum
